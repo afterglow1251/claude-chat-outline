@@ -1,0 +1,239 @@
+<!doctype html>
+<!--
+  Standalone reproduction of claude.ai's chat DOM (as described in the task).
+  Serve with:  python3 test/serve.py   then open http://localhost:8765/chat/aaaaaaaa-0000-4000-8000-000000000001
+  Query params:
+    ?variant=testid   (default) user turns expose data-testid + .font-user-message + "You said:" heading
+    ?variant=heading  only the "You said:" heading (exercises fallback strategy 2)
+    ?variant=broken   no recognisable hooks (exercises the "selectors outdated" state)
+    ?selftest=1       run test/selftest.js and print results
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Claude Outline fixture</title>
+  <style>
+    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #faf9f5; color: #3d3929; }
+    html.dark body { background: #262624; color: #ece9e1; }
+    .app { display: flex; flex-direction: column; height: 100vh; }
+    .topbar { height: 56px; flex: none; display: flex; gap: 8px; align-items: center; padding: 0 12px; border-bottom: 1px solid #0002; }
+    .scroller { flex: 1; overflow-y: auto; overflow-anchor: none; }
+    [role="feed"] { max-width: 720px; margin: 0 auto; padding: 16px; }
+    article { padding: 12px 16px; margin: 12px 0; border-radius: 10px; }
+    article.user { background: #0000000d; }
+    article.assistant p { margin: 0 0 1em; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #results { position: fixed; left: 8px; bottom: 8px; max-width: 50vw; max-height: 40vh; overflow: auto; background: #fff; color: #000; border: 1px solid #ccc; padding: 8px; font: 12px monospace; z-index: 10; }
+  </style>
+  <script>
+    // Stand-in for the extension APIs the content scripts use.
+    window.chrome = {
+      runtime: { lastError: undefined, getURL: (p) => '/' + p },
+      storage: {
+        local: {
+          get(defaults, cb) {
+            const saved = JSON.parse(localStorage.getItem('co-store') || '{}');
+            setTimeout(() => cb({ ...defaults, ...saved }), 0);
+          },
+          set(patch) {
+            const saved = JSON.parse(localStorage.getItem('co-store') || '{}');
+            localStorage.setItem('co-store', JSON.stringify({ ...saved, ...patch }));
+          },
+        },
+      },
+    };
+  </script>
+  <!-- In the real extension this runs in the page ("MAIN") world. -->
+  <script src="/src/page-bridge.js"></script>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <button data-nav="/chat/aaaaaaaa-0000-4000-8000-000000000001">Chat A</button>
+      <button data-nav="/chat/bbbbbbbb-0000-4000-8000-000000000002">Chat B</button>
+      <button data-nav="/new">/new</button>
+      <button id="stream">Simulate streaming turn</button>
+      <button id="replace">Replace feed node</button>
+      <button id="theme">Toggle dark</button>
+    </div>
+    <div class="scroller" id="scroller"></div>
+  </div>
+
+  <script>
+    // ---- Fake Claude app -------------------------------------------------
+    const params = new URLSearchParams(location.search);
+    const VARIANT = params.get('variant') || 'testid';
+    const LOREM = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ';
+
+    function makeQuestions(prefix, n) {
+      const qs = [];
+      for (let i = 1; i <= n; i++) {
+        if (i === 4) qs.push(''); // attachment-only message
+        else if (i === 7) qs.push(`${prefix} question ${i}: ` + 'a very long question that keeps going '.repeat(5));
+        else qs.push(`${prefix} question ${i}:   how do I   handle case #${i}?`);
+      }
+      return qs;
+    }
+
+    const CHATS = {
+      'aaaaaaaa-0000-4000-8000-000000000001': { questions: makeQuestions('Alpha', 9), shownTurns: 12 },
+      'bbbbbbbb-0000-4000-8000-000000000002': { questions: makeQuestions('Beta', 12), shownTurns: 8 },
+    };
+
+    function turnsOf(chat) {
+      return chat.questions.flatMap((q, i) => [{ role: 'user', text: q }, { role: 'assistant', text: LOREM.repeat(4 + (i % 5) * 3) }]);
+    }
+
+    function userArticle(text, n, m) {
+      const a = document.createElement('article');
+      a.className = 'user';
+      a.setAttribute('aria-label', `Message ${n} of ${m}`);
+      const h = document.createElement('h2');
+      h.className = 'sr-only';
+      h.textContent = VARIANT === 'broken' ? 'Human message' : `You said: ${text}`;
+      const body = document.createElement('div');
+      if (VARIANT === 'testid') {
+        body.setAttribute('data-testid', 'user-message');
+        body.className = 'font-user-message';
+      }
+      body.textContent = text;
+      if (!text) body.append(Object.assign(document.createElement('img'), { alt: '', width: 40, height: 40 }));
+      const actions = document.createElement('button');
+      actions.textContent = 'Edit';
+      a.append(h, body, actions);
+      return a;
+    }
+
+    function assistantArticle(text, n, m) {
+      const a = document.createElement('article');
+      a.className = 'assistant';
+      a.setAttribute('aria-label', `Message ${n} of ${m}`);
+      const h = document.createElement('h2');
+      h.className = 'sr-only';
+      h.textContent = 'Claude responded:';
+      const p = document.createElement('p');
+      p.textContent = text;
+      a.append(h, p);
+      return a;
+    }
+
+    let feed = null;
+    let loading = false;
+
+    function currentChat() {
+      const m = location.pathname.match(/^\/chat\/([\w-]+)/);
+      return m ? CHATS[m[1]] : null;
+    }
+
+    function newFeed() {
+      const f = document.createElement('div');
+      f.setAttribute('role', 'feed');
+      f.setAttribute('aria-label', 'Chat messages');
+      return f;
+    }
+
+    function turnNode(t, n, m) {
+      return t.role === 'user' ? userArticle(t.text, n, m) : assistantArticle(t.text, n, m);
+    }
+
+    function loadButton() {
+      const btn = document.createElement('button');
+      btn.textContent = 'Load earlier messages';
+      btn.onclick = loadEarlier;
+      return btn;
+    }
+
+    // Full render, only on navigation (a new conversation).
+    function renderFeed() {
+      const chat = currentChat();
+      const scroller = document.getElementById('scroller');
+      if (!chat) { scroller.replaceChildren(); feed = null; return; }
+      if (!feed || !feed.isConnected) { feed = newFeed(); scroller.replaceChildren(feed); }
+      const turns = turnsOf(chat);
+      const start = turns.length - chat.shownTurns;
+      const nodes = turns.slice(start).map((t, i) => turnNode(t, start + i + 1, turns.length));
+      feed.replaceChildren(...(start > 0 ? [loadButton()] : []), ...nodes);
+    }
+
+    // Each click injects 3 more turns above the existing ones after a fake
+    // network delay, keeping existing nodes (as React would). The scroller has
+    // overflow-anchor: none, so the view jumps unless the extension restores it.
+    function loadEarlier(e) {
+      if (loading) return;
+      loading = true;
+      const btn = e.currentTarget;
+      btn.textContent = 'Loading…';
+      const chat = currentChat();
+      setTimeout(() => {
+        loading = false;
+        const turns = turnsOf(chat);
+        const oldStart = turns.length - chat.shownTurns;
+        chat.shownTurns = Math.min(turns.length, chat.shownTurns + 3);
+        const start = turns.length - chat.shownTurns;
+        const nodes = turns.slice(start, oldStart).map((t, i) => turnNode(t, start + i + 1, turns.length));
+        btn.after(...nodes);
+        if (start > 0) btn.textContent = 'Load earlier messages';
+        else btn.remove();
+      }, 250);
+    }
+
+    function navigate(path) {
+      history.pushState({}, '', path + location.search);
+      renderFeed();
+    }
+
+    // Appends a user turn, then grows an assistant turn every 20ms for 3s.
+    function stream(question = 'Streaming question about observers') {
+      const chat = currentChat();
+      chat.questions.push(question);
+      chat.shownTurns += 2;
+      const m = chat.questions.length * 2;
+      feed.append(userArticle(question, m - 1, m));
+      const answer = assistantArticle('', m, m);
+      feed.append(answer);
+      const p = answer.querySelector('p');
+      const started = performance.now();
+      return new Promise((resolve) => {
+        const tick = setInterval(() => {
+          const span = document.createElement('span');
+          span.textContent = 'token ';
+          p.append(span);
+          if (performance.now() - started > 3000) { clearInterval(tick); resolve(); }
+        }, 20);
+      });
+    }
+
+    function replaceFeed() {
+      const old = feed;
+      feed = newFeed();
+      feed.append(...old.childNodes);
+      old.replaceWith(feed);
+    }
+
+    document.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => navigate(b.dataset.nav)));
+    document.getElementById('stream').onclick = () => stream();
+    document.getElementById('replace').onclick = replaceFeed;
+    document.getElementById('theme').onclick = () => document.documentElement.classList.toggle('dark');
+    window.addEventListener('popstate', renderFeed);
+    renderFeed();
+    // Start scrolled to the bottom, like a real chat.
+    const sc = document.getElementById('scroller');
+    sc.scrollTop = sc.scrollHeight;
+
+    window.fixture = { CHATS, navigate, stream, replaceFeed, get feed() { return feed; } };
+  </script>
+
+  <!-- Content scripts, in manifest order. -->
+  <script src="/src/selectors.js"></script>
+  <script src="/src/outline.js"></script>
+  <script src="/src/panel.js"></script>
+  <script src="/src/main.js"></script>
+  <script>
+    if (params.has('selftest')) {
+      const s = document.createElement('script');
+      s.src = '/test/selftest.js';
+      document.body.append(s);
+    }
+  </script>
+</body>
+</html>

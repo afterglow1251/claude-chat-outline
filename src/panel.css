@@ -1,0 +1,291 @@
+/* Injected into the panel's shadow root only; nothing here can leak into
+   claude.ai and Claude's Tailwind styles cannot reach in. */
+
+:host {
+  --co-bg: #faf9f5;
+  --co-fg: #3d3929;
+  --co-muted: #83827d;
+  --co-border: rgba(31, 30, 29, 0.12);
+  --co-hover: rgba(31, 30, 29, 0.05);
+  --co-active-bg: rgba(217, 119, 87, 0.1);
+  --co-accent: #d97757;
+  --co-focus: #2c84db;
+  --co-error: #b5332a;
+  --co-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  color-scheme: light;
+}
+
+:host([data-theme="dark"]) {
+  --co-bg: #262624;
+  --co-fg: #ece9e1;
+  --co-muted: #9c9a92;
+  --co-border: rgba(255, 255, 255, 0.1);
+  --co-hover: rgba(255, 255, 255, 0.05);
+  --co-active-bg: rgba(217, 119, 87, 0.16);
+  --co-focus: #66a7ee;
+  --co-error: #f08a80;
+  --co-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.panel,
+.tab {
+  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--co-fg);
+  background: var(--co-bg);
+  border: 1px solid var(--co-border);
+  box-shadow: var(--co-shadow);
+}
+
+/* ----- panel ------------------------------------------------------------ */
+
+.panel {
+  position: fixed;
+  top: var(--co-top, 56px);
+  right: 8px;
+  bottom: 8px;
+  width: var(--co-width, 300px);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel.resizing {
+  user-select: none;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 1;
+}
+
+.resizer:hover,
+.panel.resizing .resizer,
+.resizer:focus-visible {
+  background: var(--co-border);
+  outline: none;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--co-border);
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count {
+  margin-left: 4px;
+  font-weight: 400;
+  color: var(--co-muted);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--co-focus);
+  outline-offset: -2px;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--co-muted);
+  flex: none;
+}
+
+.icon-btn:hover:not(:disabled),
+.icon-btn[aria-pressed="true"] {
+  background: var(--co-hover);
+  color: var(--co-fg);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ----- status line ------------------------------------------------------ */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: var(--co-muted);
+  border-bottom: 1px solid var(--co-border);
+}
+
+.status[data-kind="error"] {
+  color: var(--co-error);
+}
+
+.status.loading::before {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--co-border);
+  border-top-color: var(--co-accent);
+  animation: co-spin 0.8s linear infinite;
+}
+
+.status-text {
+  flex: 1;
+}
+
+.link-btn {
+  color: var(--co-fg);
+  text-decoration: underline;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+@keyframes co-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ----- list ------------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1;
+  overscroll-behavior: contain;
+}
+
+.list button {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px 6px 10px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--co-muted);
+}
+
+.list button:hover {
+  background: var(--co-hover);
+  color: var(--co-fg);
+}
+
+.list button[aria-current="true"] {
+  background: var(--co-active-bg);
+  color: var(--co-fg);
+}
+
+.list button[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--co-accent);
+}
+
+.num {
+  flex: none;
+  min-width: 1.6em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.label {
+  overflow-wrap: anywhere;
+}
+
+/* ----- collapsed tab ---------------------------------------------------- */
+
+.tab {
+  position: fixed;
+  top: calc(var(--co-top, 56px) + 8px);
+  right: 0;
+  width: 28px;
+  padding: 10px 0;
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--co-muted);
+}
+
+.tab:hover {
+  color: var(--co-fg);
+}
+
+.tab-label,
+.tab-count {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+}
+
+.tab-count {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status.loading::before {
+    animation-duration: 2.4s;
+  }
+}
