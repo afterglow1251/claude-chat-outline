@@ -5,6 +5,9 @@
   'use strict';
 
   const results = [];
+  // Extension warnings (collected by the fixture from page load on) are part
+  // of the report: the extension swallows exceptions on purpose.
+  const warnings = window.consoleWarnings || [];
   const pre = document.createElement('pre');
   pre.id = 'results';
   document.body.append(pre);
@@ -26,6 +29,8 @@
   }
 
   const variant = new URLSearchParams(location.search).get('variant') || 'testid';
+  const VIRTUAL = new URLSearchParams(location.search).has('virtual');
+  const API = new URLSearchParams(location.search).has('api');
   const host = () => document.getElementById('claude-outline-host');
   const root = () => host().shadowRoot;
   const items = () => Array.from(root().querySelectorAll('.list button'));
@@ -37,6 +42,33 @@
     Array.from(document.querySelectorAll('article')).filter((a) => /^You said:/.test(a.querySelector('h2').textContent));
   const visible = () => host() && host().style.display !== 'none';
   const key = (target, init) => target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, composed: true, cancelable: true, ...init }));
+  const countText = () => root().querySelector('.count').textContent;
+  const toLabel = (t) => {
+    const full = t.replace(/\s+/g, ' ').trim();
+    return full ? (full.length <= 90 ? full : full.slice(0, 89).trimEnd() + '…') : '(attachment)';
+  };
+  const isSubsequence = (small, big) => {
+    let i = 0;
+    for (const x of big) if (x === small[i]) i++;
+    return i === small.length;
+  };
+  // Scrolls the chat in steps and reports whether the outline ever lost or
+  // reordered an item along the way.
+  async function scrollThrough(from, to) {
+    let prev = labels();
+    let bad = '';
+    const step = scroller().clientHeight * 0.5;
+    for (let y = from; from < to ? y <= to : y >= to; y += from < to ? step : -step) {
+      scroller().scrollTop = y;
+      await sleep(250);
+      const now = labels();
+      if (!isSubsequence(prev, now)) bad = `at ${y}: [${prev.join(' | ')}] -> [${now.join(' | ')}]`;
+      prev = now;
+    }
+    scroller().scrollTop = to;
+    await sleep(300);
+    return bad;
+  }
 
   try {
     localStorage.removeItem('co-store');
@@ -45,6 +77,140 @@
     if (variant === 'broken') {
       check(await waitFor(() => /Couldn't find your messages/.test(statusText())), 'broken selectors show explicit error state', statusText());
       check(items().length === 0, 'no bullets when selectors fail');
+      return;
+    }
+
+    if (API) {
+      // ---- API: every question at once, never changing ------------------
+      const chat = fixture.CHATS['aaaaaaaa-0000-4000-8000-000000000001'];
+      const all = () => chat.questions.map(toLabel);
+      check(await waitFor(() => labels().join('|') === all().join('|'), 3000), 'all questions listed at once, including ones not loaded in the page', labels().join(' | '));
+      check(!labels().includes('An old version of the first question'), 'abandoned branch not listed');
+      check(!/\+$/.test(countText()), 'count has no "+" (list is complete)', countText());
+      check(document.querySelector('[role=feed] > button'), '"Load earlier messages" still in the page (not needed for the list)');
+      const snapshot = labels().join('|');
+      let changedAt = '';
+      const watch = setInterval(() => { if (!changedAt && labels().join('|') !== snapshot) changedAt = labels().join(' | '); }, 20);
+      await scrollThrough(scroller().scrollTop, 0);
+      await scrollThrough(0, scroller().scrollHeight);
+      clearInterval(watch);
+      check(!changedAt, 'list never changes while scrolling up and down', changedAt);
+
+      // jump to the first question, which needs "Load earlier messages"
+      const firstText = chat.questions[0];
+      const findFirst = () => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(firstText.replace(/\s+/g, ' ').slice(0, 25)));
+      check(!findFirst(), 'first question not in the page yet');
+      items()[0].click();
+      check(await waitFor(() => findFirst() && findFirst().style.outline !== '', 15000), 'clicking it loads earlier messages, renders and flashes it');
+      check(await waitFor(() => current() === 0, 3000), 'it becomes the active item', `current=${current()}`);
+      check(labels().join('|') === snapshot, 'list unchanged by the jump');
+
+      // a new question appears right away and survives the API refresh
+      scroller().scrollTop = scroller().scrollHeight;
+      await sleep(300);
+      const callsBefore = window.apiCalls;
+      const streamDone = fixture.stream('API streamed question');
+      check(await waitFor(() => labels()[labels().length - 1] === 'API streamed question', 2000), 'question you just sent is listed immediately');
+      await streamDone;
+      check(await waitFor(() => window.apiCalls > callsBefore, 6000), 'API asked again after a new question');
+      await sleep(300);
+      check(labels().join('|') === all().join('|'), 'list matches the API after the refresh', labels().join(' | '));
+
+      // URL changes inside the same chat keep everything
+      const callsNow = window.apiCalls;
+      history.replaceState({}, '', location.pathname + location.search + '#same-chat');
+      await sleep(300);
+      check(window.apiCalls === callsNow && labels().join('|') === all().join('|'), 'URL change within the same chat keeps the session');
+
+      fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
+      const allB = fixture.CHATS['bbbbbbbb-0000-4000-8000-000000000002'].questions.map(toLabel);
+      check(await waitFor(() => labels().join('|') === allB.join('|'), 3000), 'other chat: its complete list', labels().join(' | '));
+      return;
+    }
+
+    if (VIRTUAL) {
+      // ---- virtualized feed: the outline must be stable while scrolling --
+      const chat = fixture.CHATS['aaaaaaaa-0000-4000-8000-000000000001'];
+      const total = chat.questions.length;
+      const loadedQuestions = chat.questions.slice(total - chat.shownTurns / 2);
+      await waitFor(() => items().length > 0);
+      check(document.querySelector('[role=feed] .placeholder'), 'fixture really unmounts far-away turns');
+      check(items().length >= userArticles().length, 'outline lists at least the mounted questions');
+      check(/\+$/.test(countText()), 'count shows "+" while parts of the chat were never rendered', countText());
+      let up = await scrollThrough(scroller().scrollTop, 0);
+      check(!up, 'scrolling up only adds items (nothing removed or reordered)', up);
+      let down = await scrollThrough(0, scroller().scrollHeight);
+      check(!down, 'scrolling down keeps every item (nothing removed or reordered)', down);
+      check(labels().join('|') === loadedQuestions.map(toLabel).join('|'), 'after one pass every loaded question is listed, in order', labels().join(' | '));
+      check(/\+$/.test(countText()), 'count keeps "+" while "Load earlier messages" exists', countText());
+
+      // ---- nothing seen is ever lost ------------------------------------------
+      const seenAll = labels().join('|');
+      fixture.replaceFeed();
+      await sleep(400);
+      check(labels().join('|') === seenAll, 'feed node replaced: list unchanged', labels().join(' | '));
+      history.replaceState({}, '', location.pathname + location.search + '#same-chat');
+      await sleep(300);
+      check(labels().join('|') === seenAll, 'URL change within the same chat: list unchanged', labels().join(' | '));
+      await sleep(1200); // let the cache save
+      fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
+      await waitFor(() => labels()[0] && labels()[0].startsWith('Beta'));
+      fixture.navigate('/chat/aaaaaaaa-0000-4000-8000-000000000001');
+      check(await waitFor(() => labels().join('|') === seenAll, 1500), 'coming back to the chat: every question seen before is listed at once (cache)', labels().join(' | '));
+      check(userArticles().length < seenAll.split('|').length, 'even though only some are rendered');
+      let lost = await scrollThrough(scroller().scrollTop, 0);
+      check(!lost && labels().join('|') === seenAll, 'cached list stays stable while scrolling', lost || labels().join(' | '));
+      scroller().scrollTop = scroller().scrollHeight;
+      await sleep(300);
+
+      // ---- jump to a question that is not in the DOM -----------------------
+      scroller().scrollTop = scroller().scrollHeight;
+      await sleep(300);
+      const jumpTo = 1; // the very first turn cannot reach the 80px line
+      const jumpFull = items()[jumpTo].title;
+      const findTarget = () => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(jumpFull.slice(0, 30)));
+      check(!findTarget(), 'the question is unmounted while at the bottom');
+      const stillThere = labels().length;
+      items()[jumpTo].click();
+      check(await waitFor(() => findTarget() && findTarget().style.outline !== '', 5000), 'target is rendered and flashes');
+      check(await waitFor(() => { const a = findTarget(); return a && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 3000), 'clicking an unmounted question scrolls to it (80px offset)');
+      check(await waitFor(() => current() === jumpTo, 2000), 'it becomes the active item', `current=${current()}`);
+      check(labels().length === stillThere, 'jumping did not change the list', `${labels().length} vs ${stillThere}`);
+
+      // ---- active item follows scrolling across unmounted regions ---------
+      scroller().scrollTop = scroller().scrollHeight;
+      check(await waitFor(() => current() === labels().length - 1, 2000), 'bottom -> last question active', `current=${current()}`);
+
+      // ---- load all = load earlier + scan the whole chat --------------------
+      scroller().scrollTop = scroller().scrollHeight / 2;
+      await sleep(300);
+      const anchorLabel = userArticles().find((a) => a.getBoundingClientRect().bottom > scroller().getBoundingClientRect().top);
+      const anchorText = anchorLabel.querySelector('h2').textContent;
+      const anchorTop = anchorLabel.getBoundingClientRect().top;
+      const loadBtn = root().querySelector('.header .icon-btn[aria-label="Load all questions"]');
+      check(!loadBtn.disabled, 'Load all enabled');
+      loadBtn.click();
+      check(await waitFor(() => root().querySelector('.status.loading'), 500), 'spinner while loading');
+      check(await waitFor(() => !root().querySelector('.status.loading'), 20000), 'load-all finishes');
+      check(labels().join('|') === chat.questions.map(toLabel).join('|'), 'load all lists every question of the chat, in order', labels().join(' | '));
+      check(!/\+$/.test(countText()), 'count has no "+" after load all', countText());
+      check(/All questions loaded/.test(statusText()), 'completion notice', statusText());
+      const anchorNow = userArticles().find((a) => a.querySelector('h2').textContent === anchorText);
+      check(anchorNow && Math.abs(anchorNow.getBoundingClientRect().top - anchorTop) <= 2, 'reading position preserved after load all', anchorNow ? `moved ${(anchorNow.getBoundingClientRect().top - anchorTop).toFixed(1)}px` : 'anchor not rendered');
+      const after = await scrollThrough(scroller().scrollTop, 0);
+      check(!after && labels().length === total, 'list stays complete and stable after load all', after || labels().length);
+
+      // ---- new question while streaming -------------------------------------
+      scroller().scrollTop = scroller().scrollHeight;
+      await sleep(300);
+      const streamDone = fixture.stream('Virtual streamed question');
+      check(await waitFor(() => labels()[labels().length - 1] === 'Virtual streamed question' && labels().length === total + 1, 2000), 'new question appended at the end');
+      await streamDone;
+
+      // ---- another chat starts from scratch --------------------------------
+      fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
+      check(await waitFor(() => labels().length && labels().every((l) => l.startsWith('Beta') || l === '(attachment)')), 'navigation drops the previous chat\'s questions', labels().join(' | '));
+      check(labels().length < fixture.CHATS['bbbbbbbb-0000-4000-8000-000000000002'].questions.length, 'chat B starts with only what is rendered');
       return;
     }
 
@@ -126,12 +292,12 @@
     check(items().length === total, 'all questions loaded', `${items().length} of ${total}`);
     check(!document.querySelector('[role=feed] > button'), '"Load earlier messages" button gone');
     check(Math.abs(anchor.getBoundingClientRect().top - anchorTop) <= 2, 'scroll position preserved after load-all', `moved ${(anchor.getBoundingClientRect().top - anchorTop).toFixed(1)}px`);
-    check(/All earlier messages loaded/.test(statusText()), 'completion notice', statusText());
+    check(/All questions loaded/.test(statusText()), 'completion notice', statusText());
 
     // ---- route changes ----------------------------------------------------
     fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
     check(await waitFor(() => labels()[0] && labels()[0].startsWith('Beta')), 'SPA navigation to chat B rebuilds outline', labels()[0]);
-    check(statusText() === '', 'previous chat notice cleared on navigation', statusText());
+    check(!/All questions loaded|Stopped/.test(statusText()), 'previous chat notice cleared on navigation', statusText());
 
     // cancel during load-all
     root().querySelector('.header .icon-btn[aria-label="Load all questions"]').click();
@@ -198,5 +364,9 @@
     const failed = results.filter((r) => !r.ok).length;
     document.title = failed ? `SELFTEST FAIL (${failed}/${results.length})` : `SELFTEST PASS (${results.length})`;
     pre.dataset.done = '1';
+    // For test/run.py (headless): hand the results to the fixture server.
+    const extensionWarnings = warnings.filter((w) => w.includes('[Claude Outline]'));
+    const report = document.title + '\n' + pre.textContent + (extensionWarnings.length ? '\nExtension warnings:\n' + extensionWarnings.join('\n') : '');
+    fetch('/selftest' + location.search, { method: 'POST', body: report }).catch(() => {});
   }
 })();

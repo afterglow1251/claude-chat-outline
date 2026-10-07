@@ -11,9 +11,12 @@
   // the first instance owns the page.
   if (document.getElementById(Panel.HOST_ID)) return;
 
+  const Sources = globalThis.ClaudeOutlineSources;
+
   let panel = null;
   let session = null;
   let routes = null;
+  let sessionKey = null; // which conversation the session belongs to
 
   function boot() {
     panel = Panel.create({
@@ -26,16 +29,21 @@
     onRouteChange();
   }
 
-  // Full reset on every navigation: the old conversation's nodes, observers
-  // and in-flight "load all" must not leak into the next one.
+  // Full reset when the conversation changes: the old conversation's nodes,
+  // observers and in-flight "load all" must not leak into the next one.
+  // A URL change that keeps the same conversation (query string, hash,
+  // replaceState) keeps the session and everything it knows.
   function onRouteChange() {
+    const isChat = core.isConversationPath(location.pathname);
+    const key = isChat ? (Sources && Sources.conversationId(location.pathname)) || location.pathname : null;
+    if (session && key === sessionKey) return;
     if (session) session.stop();
     session = null;
+    sessionKey = key;
     panel.reset();
-    const isChat = core.isConversationPath(location.pathname);
     panel.setVisible(isChat);
     if (!isChat) return;
-    session = core.createSession(panel);
+    session = core.createSession(panel, Sources ? Sources.conversationId(location.pathname) : null);
     session.start();
   }
 
@@ -44,7 +52,7 @@
     if (routes) routes.stop();
     if (panel) panel.destroy();
     document.removeEventListener(core.DEBUG_EVENT, core.debugReport);
-    session = routes = panel = null;
+    session = routes = panel = sessionKey = null;
   }
 
   // pagehide (rather than beforeunload) fires for every unload and does not
@@ -56,4 +64,5 @@
   });
 
   boot();
+  if (Sources) Sources.pruneCache();
 })();
