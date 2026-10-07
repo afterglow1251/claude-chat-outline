@@ -1,0 +1,68 @@
+// Shapes shared between the modules.
+
+/** Query helpers that never throw: a broken selector degrades to "nothing found". */
+export interface Query {
+  one(root: ParentNode | null, sel: string): HTMLElement | null;
+  all(root: ParentNode | null, sel: string): HTMLElement[];
+  text(el: Node | null | undefined): string;
+}
+
+/** One way of finding the user's messages inside the feed. */
+export interface Strategy {
+  name: string;
+  find(feed: HTMLElement, q: Query): HTMLElement[];
+}
+
+/** A question as claude.ai's API returns it, with its 1-based position in the branch. */
+export interface ApiQuestion {
+  text: string;
+  pos: number;
+}
+
+/** A question rendered in the page right now. */
+export interface RenderedItem {
+  target: HTMLElement;
+  full: string;
+  pos: number | null;
+  label: string;
+}
+
+/** A question the ledger knows of, rendered or not. */
+export interface Entry {
+  key: string;
+  full: string;
+  pos: number | null;
+  label: string;
+  /** The rendered turn, or null while claude.ai has it unmounted. */
+  node: HTMLElement | null;
+  /** Top of the turn relative to the feed when last seen. */
+  offset: number | null;
+  /** Sent after the last API answer. */
+  pending: boolean;
+}
+
+export type Status = 'no-feed' | 'empty' | 'selectors-broken' | 'ok';
+
+export interface RenderResult {
+  status: Status;
+  strategy?: string | null;
+  items: readonly Pick<Entry, 'label' | 'full'>[];
+  canLoadEarlier: boolean;
+  incomplete: boolean;
+}
+
+export type LoadReason = 'done' | 'cancelled' | 'limit' | 'timeout' | 'stalled' | 'error';
+
+export interface LoadState {
+  running: boolean;
+  clicks?: number;
+  scan?: number;
+  reason?: LoadReason;
+}
+
+/** What a session needs from the panel. */
+export interface View {
+  render(result: RenderResult): void;
+  setActive(index: number): void;
+  setLoadState(state: LoadState): void;
+}

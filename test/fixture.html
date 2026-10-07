@@ -53,7 +53,7 @@
     }
     // Stand-in for the extension APIs the content scripts use.
     window.chrome = {
-      runtime: { lastError: undefined, getURL: (p) => '/' + p },
+      runtime: { lastError: undefined, getURL: (p) => '/dist/' + p },
       storage: {
         local: {
           get(keys, cb) {
@@ -78,7 +78,7 @@
     };
   </script>
   <!-- In the real extension this runs in the page ("MAIN") world. -->
-  <script src="/src/page-bridge.js"></script>
+  <script src="/dist/page-bridge.js"></script>
 </head>
 <body>
   <div class="app">
@@ -439,12 +439,8 @@
     window.fixture = { CHATS, navigate, stream, replaceFeed, get feed() { return feed; } };
   </script>
 
-  <!-- Content scripts, in manifest order. -->
-  <script src="/src/selectors.js"></script>
-  <script src="/src/sources.js"></script>
-  <script src="/src/outline.js"></script>
-  <script src="/src/panel.js"></script>
-  <script src="/src/main.js"></script>
+  <!-- The content script, as built by `npm run build`. -->
+  <script src="/dist/content.js"></script>
   <script>
     if (params.has('selftest')) {
       const s = document.createElement('script');

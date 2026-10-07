@@ -15,7 +15,7 @@
   color-scheme: light;
 }
 
-:host([data-theme="dark"]) {
+:host([data-theme='dark']) {
   --co-bg: #262624;
   --co-fg: #ece9e1;
   --co-muted: #9c9a92;
@@ -38,7 +38,12 @@
 
 .panel,
 .tab {
-  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font:
+    13px/1.4 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
   color: var(--co-fg);
   background: var(--co-bg);
   border: 1px solid var(--co-border);
@@ -136,7 +141,7 @@ button:focus-visible {
 }
 
 .icon-btn:hover:not(:disabled),
-.icon-btn[aria-pressed="true"] {
+.icon-btn[aria-pressed='true'] {
   background: var(--co-hover);
   color: var(--co-fg);
 }
@@ -167,12 +172,12 @@ svg {
   border-bottom: 1px solid var(--co-border);
 }
 
-.status[data-kind="error"] {
+.status[data-kind='error'] {
   color: var(--co-error);
 }
 
 .status.loading::before {
-  content: "";
+  content: '';
   flex: none;
   width: 12px;
   height: 12px;
@@ -226,20 +231,9 @@ svg {
   color: var(--co-fg);
 }
 
-.list button[aria-current="true"] {
+.list button[aria-current='true'] {
   background: var(--co-active-bg);
   color: var(--co-fg);
-}
-
-.list button[aria-current="true"]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--co-accent);
 }
 
 .num {

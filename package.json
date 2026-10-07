@@ -1,0 +1,27 @@
+{
+  "name": "claude-chat-outline",
+  "version": "1.2.1",
+  "private": true,
+  "description": "A clickable outline of your own questions in claude.ai chats.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "watch": "node tools/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src tools",
+    "format": "prettier --write src tools",
+    "format:check": "prettier --check src tools",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "test:unit": "node test/ledger.test.js",
+    "test:browser": "python3 test/run.py",
+    "test": "npm run build && npm run test:unit && npm run test:browser",
+    "package": "npm run build && sh tools/package.sh"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.87.0",
+    "prettier": "^3.9.9",
+    "typescript": "^7.0.2"
+  }
+}

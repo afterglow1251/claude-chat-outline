@@ -19,6 +19,22 @@
   const check = (cond, name, detail) => log(!!cond, name, cond ? '' : detail);
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The jump highlight is a Web Animation on the turn or the bubble inside it.
+  const flashing = (el) => !!el && el.getAnimations({ subtree: true }).length > 0;
+  // What __claudeOutline.debug() logs (the content script's internals are
+  // bundled and not reachable from the page).
+  function debugLog(onReturn) {
+    let logged = '';
+    const orig = console.log;
+    console.log = (...a) => { logged += a.join(' ') + '\n'; };
+    try {
+      const ret = window.__claudeOutline.debug();
+      if (onReturn) onReturn(ret);
+    } finally {
+      console.log = orig;
+    }
+    return logged;
+  }
   async function waitFor(fn, timeout = 3000) {
     const end = performance.now() + timeout;
     while (performance.now() < end) {
@@ -105,7 +121,7 @@
         scroller().scrollTop = scroller().scrollHeight;
         await sleep(300);
         items()[codeIdx].click();
-        check(await waitFor(() => { const a = findCode(); return a && a.style.outline !== '' && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 8000), 'clicking the code-block question navigates to it');
+        check(await waitFor(() => { const a = findCode(); return a && flashing(a) && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 8000), 'clicking the code-block question navigates to it');
         check(await waitFor(() => current() === codeIdx, 2000), 'code-block question becomes active', `current=${current()}`);
         // and when it is already on screen
         scroller().scrollTop += 300;
@@ -120,7 +136,7 @@
       const findFirst = () => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(firstText.replace(/\s+/g, ' ').slice(0, 25)));
       check(!findFirst(), 'first question not in the page yet');
       items()[0].click();
-      check(await waitFor(() => findFirst() && findFirst().style.outline !== '', 15000), 'clicking it loads earlier messages, renders and flashes it');
+      check(await waitFor(() => findFirst() && flashing(findFirst()), 15000), 'clicking it loads earlier messages, renders and flashes it');
       check(await waitFor(() => current() === 0, 3000), 'it becomes the active item', `current=${current()}`);
       check(labels().join('|') === snapshot, 'list unchanged by the jump');
 
@@ -191,7 +207,7 @@
       check(!findTarget(), 'the question is unmounted while at the bottom');
       const stillThere = labels().length;
       items()[jumpTo].click();
-      check(await waitFor(() => findTarget() && findTarget().style.outline !== '', 5000), 'target is rendered and flashes');
+      check(await waitFor(() => findTarget() && flashing(findTarget()), 5000), 'target is rendered and flashes');
       check(await waitFor(() => { const a = findTarget(); return a && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 3000), 'clicking an unmounted question scrolls to it (80px offset)');
       check(await waitFor(() => current() === jumpTo, 2000), 'it becomes the active item', `current=${current()}`);
       check(labels().length === stillThere, 'jumping did not change the list', `${labels().length} vs ${stillThere}`);
@@ -235,7 +251,7 @@
 
     // ---- extraction ------------------------------------------------------
     await waitFor(() => items().length > 0);
-    const strategy = ClaudeOutline.collect(ClaudeOutline.findFeed()).strategy;
+    const strategy = debugLog().match(/Strategy in use: (.*)/)?.[1] || '';
     const expectedStrategy = variant === 'heading' ? /You said/ : /data-testid/;
     check(expectedStrategy.test(strategy), `strategy for variant "${variant}"`, strategy);
     check(items().length === userArticles().length, 'one bullet per visible user message', `${items().length} vs ${userArticles().length}`);
@@ -253,12 +269,12 @@
     const target = userArticles()[idx];
     const hadStyle = target.hasAttribute('style');
     items()[idx].click();
-    check(await waitFor(() => target.style.outline !== ''), 'target article flashes');
+    check(await waitFor(() => flashing(target)), 'target article flashes');
     await sleep(900);
     const offset = target.getBoundingClientRect().top - scroller().getBoundingClientRect().top;
     check(Math.abs(offset - 80) <= 3, 'clicked message scrolled to scroller top + 80px offset', `offset=${offset.toFixed(1)}`);
     check(await waitFor(() => current() === idx), 'clicked bullet becomes active (aria-current)', `current=${current()}`);
-    check(await waitFor(() => target.style.outline === '' && target.hasAttribute('style') === hadStyle, 2000), 'flash fully reverted (style attribute restored)');
+    check(await waitFor(() => !flashing(target) && target.hasAttribute('style') === hadStyle, 2000), 'flash leaves nothing behind (no animation, style attribute untouched)');
     check(window.scrollY === 0, 'window itself never scrolled');
 
     // ---- active tracking on manual scroll --------------------------------
@@ -365,17 +381,14 @@
 
     // ---- idempotent injection ----------------------------------------------
     const again = document.createElement('script');
-    again.src = '/src/main.js?again';
+    again.src = '/dist/content.js?again';
     document.body.append(again);
     await new Promise((r) => (again.onload = r));
     check(document.querySelectorAll('#claude-outline-host').length === 1, 'second injection bails (one host)');
 
     // ---- debug helper -------------------------------------------------------
-    let logged = '';
-    const orig = console.log;
-    console.log = (...a) => { logged += a.join(' ') + '\n'; };
-    const ret = window.__claudeOutline.debug();
-    console.log = orig;
+    let ret;
+    const logged = debugLog((r) => (ret = r));
     check(new RegExp('Strategy in use: ' + (variant === 'heading' ? 'turn with' : '\\[data-testid')).test(logged) && typeof ret === 'string', '__claudeOutline.debug() reports matched strategy', logged);
   } catch (err) {
     log(false, 'selftest crashed', String(err && err.stack));
