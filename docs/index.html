@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Chat Outline: a table of contents for Claude.ai chats (free Chrome extension)</title>
+  <meta name="description" content="Free, open-source Chrome extension that adds a clickable outline of your questions to every Claude.ai conversation. Jump to any message in long Claude chats in one click. No tracking.">
+  <meta name="keywords" content="Claude, Claude.ai, Claude chat outline, Claude table of contents, navigate long Claude chats, Claude Chrome extension, Anthropic Claude extension, jump to message, chat navigation">
+  <link rel="canonical" href="https://dereviankoandrew.github.io/claude-chat-outline/">
+  <link rel="icon" type="image/png" href="icon128.png">
+  <meta name="theme-color" content="#d97757">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Claude Chat Outline: a table of contents for Claude.ai chats">
+  <meta property="og:description" content="Free Chrome extension that lists every question you asked in a Claude conversation. Jump to any message in one click.">
+  <meta property="og:url" content="https://dereviankoandrew.github.io/claude-chat-outline/">
+  <meta property="og:image" content="https://dereviankoandrew.github.io/claude-chat-outline/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Claude Chat Outline: a table of contents for Claude.ai chats">
+  <meta name="twitter:description" content="Free Chrome extension that lists every question you asked in a Claude conversation. Jump to any message in one click.">
+  <meta name="twitter:image" content="https://dereviankoandrew.github.io/claude-chat-outline/social-preview.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Claude Chat Outline",
+    "description": "Chrome extension that adds a clickable table of contents of your questions to Claude.ai conversations, so you can jump to any message in long chats.",
+    "applicationCategory": "BrowserApplication",
+    "applicationSubCategory": "Chrome extension",
+    "operatingSystem": "Google Chrome, Microsoft Edge, Brave, Arc, Opera, Vivaldi (Chromium 114+)",
+    "softwareVersion": "1.2.1",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "url": "https://dereviankoandrew.github.io/claude-chat-outline/",
+    "downloadUrl": "https://github.com/DereviankoAndrew/claude-chat-outline/releases/latest/download/claude-chat-outline.zip",
+    "codeRepository": "https://github.com/DereviankoAndrew/claude-chat-outline",
+    "screenshot": "https://dereviankoandrew.github.io/claude-chat-outline/screenshot-light.png",
+    "author": { "@type": "Person", "name": "Andrii Derevianko", "url": "https://github.com/DereviankoAndrew" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "How do I navigate long Claude conversations?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Install the free Claude Chat Outline Chrome extension. It adds a clickable list of all your questions to every Claude.ai chat, like a table of contents. Click a question to jump to it." } },
+      { "@type": "Question", "name": "Does Claude Chat Outline work with Claude Projects and code blocks?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. It works in any Claude.ai conversation, including chats inside Projects, and questions containing code blocks, attachments or markdown are listed and navigable." } },
+      { "@type": "Question", "name": "Is Claude Chat Outline safe?",
+        "acceptedAnswer": { "@type": "Answer", "text": "It only runs on claude.ai, reads only the conversation you have open, stores question texts only on your computer, and sends nothing to any server other than claude.ai. The code is open source under the MIT license." } },
+      { "@type": "Question", "name": "Which browsers does it support?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Chromium-based browsers version 114 or newer: Google Chrome, Microsoft Edge, Brave, Arc, Opera and Vivaldi. Firefox and Safari are not supported yet." } }
+    ]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #faf9f5; --fg: #2d2b26; --muted: #6b6a64; --card: #ffffff;
+      --border: rgba(31, 30, 29, 0.12); --accent: #c4613f; --accent-fg: #ffffff;
+      --code: #f0eee6;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1f1e1d; --fg: #ece9e1; --muted: #a3a19a; --card: #262624;
+        --border: rgba(255, 255, 255, 0.1); --accent: #e08a6a; --accent-fg: #1f1e1d;
+        --code: #2f2e2b; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg);
+      font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: 48px 20px 64px; }
+    header { text-align: center; }
+    header img.icon { width: 80px; height: 80px; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15; margin: 12px 0 8px; }
+    .lede { font-size: 1.2rem; color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+    .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600;
+      text-decoration: none; border: 1px solid var(--border); color: var(--fg); background: var(--card); }
+    .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+    .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    figure { margin: 40px 0; }
+    figure img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08); }
+    figcaption { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top: 10px; }
+    h2 { font-size: 1.5rem; margin: 48px 0 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+    .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+    .card p { margin: 0; color: var(--muted); }
+    ol.steps { padding-left: 1.4em; }
+    ol.steps li { margin: 6px 0; }
+    code, kbd { background: var(--code); border-radius: 5px; padding: 1px 6px; font-size: 0.92em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    details { border-top: 1px solid var(--border); padding: 12px 0; }
+    summary { cursor: pointer; font-weight: 600; }
+    a { color: var(--accent); }
+    footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+    @media (max-width: 600px) { main { padding-top: 32px; } .lede { font-size: 1.05rem; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="icon" src="icon128.png" alt="" width="80" height="80">
+    <h1>Claude Chat Outline</h1>
+    <p class="lede">A table of contents for your Claude.ai chats. This free Chrome extension lists every question you asked in a conversation, so you can jump to any message in one click.</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/DereviankoAndrew/claude-chat-outline/releases/latest/download/claude-chat-outline.zip">Download for Chrome</a>
+      <a class="btn" href="https://github.com/DereviankoAndrew/claude-chat-outline">⭐ Star on GitHub</a>
+    </div>
+  </header>
+
+  <figure>
+    <picture>
+      <source srcset="screenshot-dark.png" media="(prefers-color-scheme: dark)">
+      <img src="screenshot-light.png" width="2560" height="1520"
+        alt="A long Claude chat with the Questions panel on the right, listing twelve questions and highlighting the one being read">
+    </picture>
+    <figcaption>The Questions panel next to a long chat (demo conversation).</figcaption>
+  </figure>
+
+  <h2>Navigate long Claude conversations</h2>
+  <div class="grid">
+    <div class="card"><h3>Every question, in order</h3><p>A numbered list of everything you asked in the chat, complete as soon as you open it.</p></div>
+    <div class="card"><h3>Jump in one click</h3><p>Click a question to scroll straight to it, even in very long chats and for messages not loaded yet.</p></div>
+    <div class="card"><h3>Follows your reading</h3><p>The question you are reading is highlighted as you scroll.</p></div>
+    <div class="card"><h3>Keyboard friendly</h3><p><kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> toggles the panel, and the arrow keys move through it.</p></div>
+    <div class="card"><h3>Looks native</h3><p>Follows Claude's light and dark themes. Resize it, collapse it, or push the chat aside.</p></div>
+    <div class="card"><h3>Private</h3><p>No tracking and no external servers. It runs only on claude.ai and the code is open source (MIT).</p></div>
+  </div>
+
+  <h2>Install in 2 minutes</h2>
+  <ol class="steps">
+    <li><a href="https://github.com/DereviankoAndrew/claude-chat-outline/releases/latest/download/claude-chat-outline.zip">Download <code>claude-chat-outline.zip</code></a> and unzip it.</li>
+    <li>Open <code>chrome://extensions</code>.</li>
+    <li>Turn on <b>Developer mode</b> (top-right corner).</li>
+    <li>Click <b>Load unpacked</b> and select the <code>claude-chat-outline</code> folder.</li>
+    <li>Open a chat on claude.ai. The Questions panel appears on the right.</li>
+  </ol>
+  <p>Works in Google Chrome, Microsoft Edge, Brave, Arc, Opera and Vivaldi (version 114 or newer).</p>
+
+  <h2>FAQ</h2>
+  <details><summary>How do I navigate long Claude conversations?</summary>
+    <p>Install Claude Chat Outline. It adds a clickable list of all your questions to every Claude.ai chat, like a table of contents. Click a question to jump to it.</p></details>
+  <details><summary>Does it work with Projects and code blocks?</summary>
+    <p>Yes. It works in any conversation, including chats inside Projects, and questions containing code blocks, attachments or markdown are listed and navigable.</p></details>
+  <details><summary>Is it safe? Can it read my chats?</summary>
+    <p>It runs only on claude.ai and reads only the conversation you have open, using claude.ai's own API with your existing login. Question texts are cached on your computer only. Nothing is sent to any other server.</p></details>
+  <details><summary>Does it work in Firefox, Safari, ChatGPT or Gemini?</summary>
+    <p>Not yet. It is a Chromium extension built specifically for claude.ai.</p></details>
+
+  <footer>
+    <p><a href="https://github.com/DereviankoAndrew/claude-chat-outline">Source on GitHub</a> · <a href="https://github.com/DereviankoAndrew/claude-chat-outline/issues">Report a problem</a> · MIT license</p>
+    <p>Claude Chat Outline is an independent open-source project, not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic, PBC.</p>
+  </footer>
+</main>
+</body>
+</html>

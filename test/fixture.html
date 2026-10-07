@@ -17,6 +17,8 @@
     ?cds=1            claude.ai's current markup: [data-testid=transcript-row] >
                       div[role=article][aria-posinset], and question 3 of chat A
                       is a code block + text (stored with a ``` fence)
+    ?demo=1           realistic demo chat for README screenshots (test/screenshots.py);
+                      add &dark=1 for dark mode
     ?api=1            serve claude.ai's conversation API from the fixture data
                       (all questions, including ones not loaded in the page)
 -->
@@ -120,11 +122,53 @@
       'bbbbbbbb-0000-4000-8000-000000000002': { questions: makeQuestions('Beta', 12), shownTurns: 8 },
     };
 
+    // ---- Demo chat for README screenshots (?demo=1) ---------------------
+    const DEMO = params.has('demo');
+    const DEMO_CHAT = [
+      ['Explain the difference between TCP and UDP like I am a backend engineer', 'TCP gives you an ordered, reliable byte stream: every segment is acknowledged, lost packets are retransmitted, and congestion control slows the sender down when the network is busy. UDP gives you individual datagrams with none of that. That makes UDP a good fit when late data is useless anyway, such as voice, games and DNS lookups, and TCP the default for everything that must arrive intact.'],
+      ['Write a Python function that retries failed HTTP requests with exponential backoff', 'Here is a small helper built on requests. It retries on connection errors and 5xx responses, doubles the wait after every attempt, adds jitter so many clients do not retry in lockstep, and gives up after a configurable number of attempts. The final exception is re-raised so callers still see what went wrong.'],
+      ['Why does my React component render twice in development?', 'That is React Strict Mode. In development it intentionally mounts, unmounts and re-mounts components, and calls render functions twice, to surface side effects that are not idempotent. It does not happen in a production build. If an effect breaks when it runs twice, it usually needs a cleanup function.'],
+      ['What index would speed up this PostgreSQL query on orders by customer and date?', 'A composite B-tree index on (customer_id, created_at DESC) matches both the filter and the sort, so Postgres can read the newest rows for one customer directly from the index. Put the equality column first and the range or sort column second. Check the plan with EXPLAIN ANALYZE before and after.'],
+      ['Rewrite the retry helper with asyncio and httpx', 'The async version keeps the same policy: the same attempts, backoff and jitter, with asyncio.sleep instead of time.sleep and an httpx.AsyncClient shared across calls. Sharing the client matters, because it reuses connections instead of opening a new one per request.'],
+      ['How should I structure logging in a FastAPI app?', 'Configure logging once at startup, emit structured JSON in production, and attach a request id to every log line with a small middleware. Keep application loggers named per module, and send uvicorn access logs through the same handler so everything ends up in one consistent format.'],
+      ['Redis or Memcached for session storage?', 'Redis, in most cases. Both are fast in-memory stores, but Redis adds persistence, replication, per-key expiry and richer data types, which you will want once sessions hold more than a token. Memcached is simpler and scales out easily when you only need a volatile cache.'],
+      ['Write pytest tests for the backoff function', 'The tests below freeze time with a fake sleep, so they run instantly. They check that the delays double, that jitter stays within bounds, that the function stops after the maximum number of attempts, and that a success on the third try returns the response without further retries.'],
+      ['What do mu and sigma mean when normalizing features?', 'mu is the mean of each feature column and sigma is its standard deviation. Subtracting mu centres every feature at zero and dividing by sigma scales it to unit variance, so features measured in very different units contribute comparably to the model. Compute both on the training set only.'],
+      ['Summarize the trade-offs we discussed so far', 'Reliability versus latency for the transport, simplicity versus features for the cache, and sync versus async for the HTTP client. In each case the simpler option is fine until you need what the other one adds, and the decision is cheap to revisit later.'],
+      ['Draft a short README section for the retry helper', 'Retry helper: retries failed HTTP requests with exponential backoff and jitter. It retries on connection errors and 5xx responses, waits 0.5 s, 1 s, 2 s and so on between attempts, and re-raises the last error after the final attempt. Works with both requests and httpx.'],
+      ['What would you change before shipping this to production?', 'Add metrics for retry counts, cap the total time spent retrying, make the retryable status codes configurable, and make sure non-idempotent requests such as POST are never retried without an idempotency key. Then load-test the failure path, not just the happy path.'],
+    ];
+    if (DEMO) {
+      document.querySelector('.topbar').hidden = true;
+      if (params.has('dark')) document.documentElement.classList.add('dark');
+      const style = document.createElement('style');
+      style.textContent = `
+        .topbar[hidden] { display: none; }
+        body { font: 16px/1.6 ui-serif, Georgia, serif; }
+        [role="feed"] { max-width: 760px; padding: 24px 32px 120px; margin: 0 auto 0 calc(50% - 560px); }
+        article.user { background: #f0eee6; margin-left: auto; width: fit-content; max-width: 75%; font-family: system-ui, sans-serif; font-size: 15px; border-radius: 16px; }
+        article.user button { display: none; }
+        html.dark article.user { background: #141413; }
+        article.assistant { padding-left: 0; }
+        .demo-header { height: 56px; display: flex; align-items: center; padding: 0 20px; font: 600 15px system-ui, sans-serif; border-bottom: 1px solid #0001; }
+        html.dark .demo-header { border-color: #fff1; }`;
+      document.head.append(style);
+      const header = document.createElement('div');
+      header.className = 'demo-header';
+      header.textContent = 'Backend questions';
+      document.querySelector('.app').prepend(header);
+      const chat = CHATS['aaaaaaaa-0000-4000-8000-000000000001'];
+      chat.questions = DEMO_CHAT.map(([q]) => q);
+      chat.shownTurns = DEMO_CHAT.length * 2;
+      chat.answers = DEMO_CHAT.map(([, a]) => a);
+    }
+
     function turnsOf(chat) {
       chat.turnCache = chat.turnCache || [];
       return chat.questions.flatMap((q, i) => {
         if (!chat.turnCache[i] || chat.turnCache[i][0].text !== q) {
-          chat.turnCache[i] = [{ role: 'user', text: q }, { role: 'assistant', text: LOREM.repeat(4 + (i % 5) * 3) }];
+          const answer = chat.answers ? chat.answers[i] : LOREM.repeat(4 + (i % 5) * 3);
+          chat.turnCache[i] = [{ role: 'user', text: q }, { role: 'assistant', text: answer }];
         }
         return chat.turnCache[i];
       });
@@ -383,6 +427,14 @@
     window.addEventListener('popstate', renderFeed);
     document.getElementById('scroller').addEventListener('scroll', scheduleVirtualize, { passive: true });
     renderFeed();
+    if (DEMO) {
+      // Put the 7th question at the top, so a question mid-list is highlighted.
+      setTimeout(() => {
+        const sc = document.getElementById('scroller');
+        const q7 = document.querySelectorAll('article.user')[6];
+        sc.scrollTop += q7.getBoundingClientRect().top - sc.getBoundingClientRect().top - 80;
+      }, 400);
+    }
 
     window.fixture = { CHATS, navigate, stream, replaceFeed, get feed() { return feed; } };
   </script>
