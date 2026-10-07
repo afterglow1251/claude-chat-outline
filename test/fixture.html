@@ -7,6 +7,15 @@
     ?variant=heading  only the "You said:" heading (exercises fallback strategy 2)
     ?variant=broken   no recognisable hooks (exercises the "selectors outdated" state)
     ?selftest=1       run test/selftest.js and print results
+    ?virtual=1        virtualize like claude.ai: turns more than one screen away
+                      from the viewport are replaced by same-height placeholders
+    ?nonum=1          article aria-labels without numbers ("Message" instead of
+                      "Message N of M")
+    ?estimate=1       with ?virtual=1: turns never rendered get an estimated
+                      height (like tanstack/react-virtual), so the feed height
+                      and positions shift as you scroll
+    ?api=1            serve claude.ai's conversation API from the fixture data
+                      (all questions, including ones not loaded in the page)
 -->
 <html lang="en">
 <head>
@@ -22,22 +31,42 @@
     article { padding: 12px 16px; margin: 12px 0; border-radius: 10px; }
     article.user { background: #0000000d; }
     article.assistant p { margin: 0 0 1em; }
+    .placeholder { margin: 12px 0; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     #results { position: fixed; left: 8px; bottom: 8px; max-width: 50vw; max-height: 40vh; overflow: auto; background: #fff; color: #000; border: 1px solid #ccc; padding: 8px; font: 12px monospace; z-index: 10; }
   </style>
   <script>
+    // Extension warnings are swallowed on purpose (a broken selector must not
+    // break the page), so the self-test collects them from here.
+    window.consoleWarnings = [];
+    for (const level of ['warn', 'error']) {
+      const original = console[level].bind(console);
+      console[level] = (...args) => {
+        window.consoleWarnings.push(args.map((a) => (a && a.stack) || String(a)).join(' '));
+        original(...args);
+      };
+    }
     // Stand-in for the extension APIs the content scripts use.
     window.chrome = {
       runtime: { lastError: undefined, getURL: (p) => '/' + p },
       storage: {
         local: {
-          get(defaults, cb) {
+          get(keys, cb) {
             const saved = JSON.parse(localStorage.getItem('co-store') || '{}');
-            setTimeout(() => cb({ ...defaults, ...saved }), 0);
+            let out;
+            if (keys == null) out = saved;
+            else if (typeof keys === 'string') out = keys in saved ? { [keys]: saved[keys] } : {};
+            else out = { ...keys, ...Object.fromEntries(Object.keys(keys).filter((k) => k in saved).map((k) => [k, saved[k]])) };
+            setTimeout(() => cb(out), 0);
           },
           set(patch) {
             const saved = JSON.parse(localStorage.getItem('co-store') || '{}');
             localStorage.setItem('co-store', JSON.stringify({ ...saved, ...patch }));
+          },
+          remove(keys) {
+            const saved = JSON.parse(localStorage.getItem('co-store') || '{}');
+            for (const k of [].concat(keys)) delete saved[k];
+            localStorage.setItem('co-store', JSON.stringify(saved));
           },
         },
       },
@@ -63,6 +92,11 @@
     // ---- Fake Claude app -------------------------------------------------
     const params = new URLSearchParams(location.search);
     const VARIANT = params.get('variant') || 'testid';
+    const VIRTUAL = params.has('virtual');
+    const ESTIMATE = params.has('estimate');
+    const ESTIMATED_HEIGHT = 300;
+    const NONUM = params.has('nonum');
+    const turnLabel = (n, m) => (NONUM ? 'Message' : `Message ${n} of ${m}`);
     const LOREM = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ';
 
     function makeQuestions(prefix, n) {
@@ -81,13 +115,19 @@
     };
 
     function turnsOf(chat) {
-      return chat.questions.flatMap((q, i) => [{ role: 'user', text: q }, { role: 'assistant', text: LOREM.repeat(4 + (i % 5) * 3) }]);
+      chat.turnCache = chat.turnCache || [];
+      return chat.questions.flatMap((q, i) => {
+        if (!chat.turnCache[i] || chat.turnCache[i][0].text !== q) {
+          chat.turnCache[i] = [{ role: 'user', text: q }, { role: 'assistant', text: LOREM.repeat(4 + (i % 5) * 3) }];
+        }
+        return chat.turnCache[i];
+      });
     }
 
     function userArticle(text, n, m) {
       const a = document.createElement('article');
       a.className = 'user';
-      a.setAttribute('aria-label', `Message ${n} of ${m}`);
+      a.setAttribute('aria-label', turnLabel(n, m));
       const h = document.createElement('h2');
       h.className = 'sr-only';
       h.textContent = VARIANT === 'broken' ? 'Human message' : `You said: ${text}`;
@@ -107,7 +147,7 @@
     function assistantArticle(text, n, m) {
       const a = document.createElement('article');
       a.className = 'assistant';
-      a.setAttribute('aria-label', `Message ${n} of ${m}`);
+      a.setAttribute('aria-label', turnLabel(n, m));
       const h = document.createElement('h2');
       h.className = 'sr-only';
       h.textContent = 'Claude responded:';
@@ -133,7 +173,43 @@
     }
 
     function turnNode(t, n, m) {
-      return t.role === 'user' ? userArticle(t.text, n, m) : assistantArticle(t.text, n, m);
+      const node = t.role === 'user' ? userArticle(t.text, n, m) : assistantArticle(t.text, n, m);
+      node._turn = { t, n, m };
+      return node;
+    }
+
+    // Virtualization, as claude.ai does it: turns further than one screen
+    // from the viewport are unmounted and replaced by a placeholder of the
+    // same height; scrolling back re-creates them as NEW nodes (like React).
+    function virtualize() {
+      if (!VIRTUAL || !feed || !feed.isConnected) return;
+      const sc = document.getElementById('scroller');
+      const box = sc.getBoundingClientRect();
+      const keepTop = box.top - sc.clientHeight;
+      const keepBottom = box.bottom + sc.clientHeight;
+      for (const el of Array.from(feed.children)) {
+        if (!el._turn) continue;
+        const r = el.getBoundingClientRect();
+        const near = r.bottom >= keepTop && r.top <= keepBottom;
+        if (el.tagName === 'ARTICLE' && !near) {
+          el._turn.t.measured = r.height;
+          el.replaceWith(placeholder(el._turn));
+        } else if (el.tagName !== 'ARTICLE' && near) {
+          el.replaceWith(turnNode(el._turn.t, el._turn.n, el._turn.m));
+        }
+      }
+    }
+    function placeholder(turn) {
+      const ph = document.createElement('div');
+      ph.className = 'placeholder';
+      ph.style.height = (turn.t.measured || ESTIMATED_HEIGHT) + 'px';
+      ph._turn = turn;
+      return ph;
+    }
+    let virtualFrame = 0;
+    function scheduleVirtualize() {
+      if (!VIRTUAL || virtualFrame) return;
+      virtualFrame = requestAnimationFrame(() => { virtualFrame = 0; virtualize(); });
     }
 
     function loadButton() {
@@ -148,11 +224,20 @@
       const chat = currentChat();
       const scroller = document.getElementById('scroller');
       if (!chat) { scroller.replaceChildren(); feed = null; return; }
-      if (!feed || !feed.isConnected) { feed = newFeed(); scroller.replaceChildren(feed); }
+      // A navigation remounts the chat, so the feed is a new node.
+      feed = newFeed();
+      scroller.replaceChildren(feed);
       const turns = turnsOf(chat);
       const start = turns.length - chat.shownTurns;
-      const nodes = turns.slice(start).map((t, i) => turnNode(t, start + i + 1, turns.length));
+      const nodes = turns.slice(start).map((t, i) => {
+        const turn = { t, n: start + i + 1, m: turns.length };
+        // Estimated heights: only the last few turns start rendered.
+        return VIRTUAL && ESTIMATE && start + i < turns.length - 4 ? placeholder(turn) : turnNode(t, turn.n, turn.m);
+      });
       feed.replaceChildren(...(start > 0 ? [loadButton()] : []), ...nodes);
+      // Start scrolled to the bottom, like a real chat.
+      scroller.scrollTop = scroller.scrollHeight;
+      virtualize();
     }
 
     // Each click injects 3 more turns above the existing ones after a fake
@@ -170,10 +255,13 @@
         const oldStart = turns.length - chat.shownTurns;
         chat.shownTurns = Math.min(turns.length, chat.shownTurns + 3);
         const start = turns.length - chat.shownTurns;
-        const nodes = turns.slice(start, oldStart).map((t, i) => turnNode(t, start + i + 1, turns.length));
+        const nodes = turns.slice(start, oldStart).map((t, i) =>
+          VIRTUAL && ESTIMATE ? placeholder({ t, n: start + i + 1, m: turns.length }) : turnNode(t, start + i + 1, turns.length)
+        );
         btn.after(...nodes);
         if (start > 0) btn.textContent = 'Load earlier messages';
         else btn.remove();
+        virtualize();
       }, 250);
     }
 
@@ -188,9 +276,10 @@
       chat.questions.push(question);
       chat.shownTurns += 2;
       const m = chat.questions.length * 2;
-      feed.append(userArticle(question, m - 1, m));
-      const answer = assistantArticle('', m, m);
+      feed.append(turnNode({ role: 'user', text: question }, m - 1, m));
+      const answer = turnNode({ role: 'assistant', text: '' }, m, m);
       feed.append(answer);
+      virtualize();
       const p = answer.querySelector('p');
       const started = performance.now();
       return new Promise((resolve) => {
@@ -210,21 +299,58 @@
       old.replaceWith(feed);
     }
 
+    // ---- Fake claude.ai API (?api=1) -----------------------------------
+    // GET /api/organizations and /api/organizations/<org>/chat_conversations/<id>.
+    // Returns every message of the chat (also ones not loaded in the page) as
+    // a tree with an abandoned branch (an edited first question) that must
+    // not appear in the outline.
+    window.apiCalls = 0;
+    if (params.has('api')) {
+      document.cookie = 'lastActiveOrg=org-1; path=/';
+      const realFetch = window.fetch.bind(window);
+      const json = (data) => new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } });
+      const conversation = (chat) => {
+        const messages = [];
+        let parent = '00000000-0000-4000-8000-000000000000';
+        chat.questions.forEach((q, i) => {
+          if (i === 0) {
+            messages.push({ uuid: 'old-edit', parent_message_uuid: parent, sender: 'human', index: 0, content: [{ type: 'text', text: 'An old version of the first question' }] });
+          }
+          const h = { uuid: `h${i}`, parent_message_uuid: parent, sender: 'human', index: 2 * i, content: q ? [{ type: 'text', text: q }, { type: 'tool_use' }] : [], text: q };
+          const a = { uuid: `a${i}`, parent_message_uuid: h.uuid, sender: 'assistant', index: 2 * i + 1, content: [{ type: 'text', text: 'answer' }] };
+          messages.push(h, a);
+          parent = a.uuid;
+        });
+        return { uuid: 'x', chat_messages: messages, current_leaf_message_uuid: parent };
+      };
+      window.fetch = async (url, opts) => {
+        const u = new URL(url, location.href);
+        if (u.pathname === '/api/organizations') return json([{ uuid: 'org-1' }]);
+        const m = u.pathname.match(/^\/api\/organizations\/org-1\/chat_conversations\/([\w-]+)$/);
+        if (m) {
+          window.apiCalls++;
+          const chat = CHATS[m[1]];
+          await new Promise((r) => setTimeout(r, 100));
+          return chat ? json(conversation(chat)) : new Response('', { status: 404 });
+        }
+        return realFetch(url, opts);
+      };
+    }
+
     document.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => navigate(b.dataset.nav)));
     document.getElementById('stream').onclick = () => stream();
     document.getElementById('replace').onclick = replaceFeed;
     document.getElementById('theme').onclick = () => document.documentElement.classList.toggle('dark');
     window.addEventListener('popstate', renderFeed);
+    document.getElementById('scroller').addEventListener('scroll', scheduleVirtualize, { passive: true });
     renderFeed();
-    // Start scrolled to the bottom, like a real chat.
-    const sc = document.getElementById('scroller');
-    sc.scrollTop = sc.scrollHeight;
 
     window.fixture = { CHATS, navigate, stream, replaceFeed, get feed() { return feed; } };
   </script>
 
   <!-- Content scripts, in manifest order. -->
   <script src="/src/selectors.js"></script>
+  <script src="/src/sources.js"></script>
   <script src="/src/outline.js"></script>
   <script src="/src/panel.js"></script>
   <script src="/src/main.js"></script>

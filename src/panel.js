@@ -12,6 +12,10 @@
   const RIGHT_GAP = 8; // panel distance from the right edge (matches panel.css)
   const STORAGE_DEFAULTS = Object.freeze({ collapsed: false, width: 300, layout: 'overlay' });
 
+  // Shown while the list may be missing questions.
+  const HINT_LOAD_EARLIER = 'Earlier messages are not loaded. Press ↑ to list every question.';
+  const HINT_SCROLL = 'Scroll through the chat once, or press ↑, to list every question.';
+
   const STATUS_TEXT = {
     'no-feed': 'Waiting for messages…',
     empty: 'No questions yet.',
@@ -20,7 +24,7 @@
   };
 
   const LOAD_RESULT_TEXT = {
-    done: (n) => (n ? 'All earlier messages loaded.' : 'Nothing more to load.'),
+    done: () => 'All questions loaded.',
     cancelled: () => 'Stopped loading.',
     limit: () => 'Stopped after 50 loads (safety limit). Click again to continue.',
     timeout: () => 'Stopped after 30 seconds (safety limit). Click again to continue.',
@@ -137,7 +141,8 @@
       count: '0',
       status: 'no-feed',
       canLoadEarlier: false,
-      loading: null, // { clicks } while "Load all" runs
+      incomplete: false,
+      loading: null, // { clicks, scan } while "Load all" runs
       notice: '', // result of the last "Load all"
       active: -1,
       roving: 0, // the one list button with tabindex=0
@@ -157,7 +162,7 @@
     const shadow = host.attachShadow({ mode: 'open' });
 
     const count = h('span', { className: 'count', 'aria-label': '0 questions' }, ['0']);
-    const loadBtn = h('button', { type: 'button', className: 'icon-btn', 'aria-label': 'Load all questions', title: 'Load all questions (clicks "Load earlier messages" until everything is loaded)' }, [icon(ICONS.loadAll)]);
+    const loadBtn = h('button', { type: 'button', className: 'icon-btn', 'aria-label': 'Load all questions', title: 'Load all questions (loads earlier messages and scans the whole chat)' }, [icon(ICONS.loadAll)]);
     const pushBtn = h('button', { type: 'button', className: 'icon-btn', 'aria-label': 'Push chat content aside', 'aria-pressed': 'false', title: 'Push chat content aside instead of overlaying it' }, [icon(ICONS.push)]);
     const collapseBtn = h('button', { type: 'button', className: 'icon-btn', 'aria-label': 'Collapse outline', 'aria-expanded': 'true', title: 'Collapse (Esc)' }, [icon(ICONS.collapse)]);
     const statusText = h('span', { className: 'status-text' });
@@ -282,26 +287,29 @@
     function renderStatus() {
       let text = '';
       let kind = '';
-      if (state.loading) text = `Loading earlier messages… (${state.loading.clicks})`;
+      if (state.loading && state.loading.scan != null) text = `Scanning the chat… ${state.loading.scan}%`;
+      else if (state.loading) text = `Loading earlier messages… (${state.loading.clicks})`;
       else if (state.status !== 'ok') text = STATUS_TEXT[state.status] || '';
-      else text = state.notice;
+      else if (state.notice) text = state.notice;
+      else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
       if (!state.loading && state.status === 'selectors-broken') kind = 'error';
       status.hidden = !text;
       status.dataset.kind = kind;
       status.classList.toggle('loading', !!state.loading);
       if (statusText.textContent !== text) statusText.textContent = text;
       cancelBtn.hidden = !state.loading;
-      loadBtn.disabled = !!state.loading || !state.canLoadEarlier;
+      loadBtn.disabled = !!state.loading || !(state.canLoadEarlier || state.incomplete);
     }
 
     function render(result) {
       state.status = result.status;
       state.canLoadEarlier = !!result.canLoadEarlier;
+      state.incomplete = !!result.incomplete;
       renderItems(result.items);
       const n = result.items.length;
-      const more = state.canLoadEarlier ? '+' : '';
+      const more = state.incomplete ? '+' : '';
       count.textContent = tabCount.textContent = `${n}${more}`;
-      count.setAttribute('aria-label', more ? `${n} questions loaded, more available` : `${n} questions`);
+      count.setAttribute('aria-label', more ? `${n} questions listed, more not loaded yet` : `${n} questions`);
       renderStatus();
     }
 
@@ -328,8 +336,8 @@
       else if (r.bottom > box.bottom) list.scrollTop += r.bottom - box.bottom;
     }
 
-    function setLoadState({ running, clicks, reason }) {
-      state.loading = running ? { clicks } : null;
+    function setLoadState({ running, clicks, scan, reason }) {
+      state.loading = running ? { clicks, scan } : null;
       if (!running) state.notice = (LOAD_RESULT_TEXT[reason] || LOAD_RESULT_TEXT.error)(clicks);
       renderStatus();
     }
@@ -479,7 +487,7 @@
         state.notice = '';
         state.active = -1;
         state.roving = 0;
-        render({ status: 'no-feed', items: [], canLoadEarlier: false });
+        render({ status: 'no-feed', items: [], canLoadEarlier: false, incomplete: false });
       },
       destroy() {
         cleanups.forEach((fn) => fn());

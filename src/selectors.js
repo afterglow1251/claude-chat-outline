@@ -73,6 +73,9 @@
       scrollOffset: 80,
       // Where the panel starts vertically (roughly Claude's top bar height).
       panelTop: 56,
+      // Empty space (px) above the first or below the last rendered turn that
+      // counts as "messages claude.ai has not rendered yet".
+      unscannedGap: 150,
     },
   });
 })();
