@@ -4,6 +4,7 @@
 //  - a per-conversation cache in chrome.storage.local, so a chat you have
 //    seen before is listed in full the moment you open it again.
 // Nothing here talks to any server other than claude.ai itself.
+import { parseConversation } from './conversation';
 import type { ApiQuestion } from './types';
 import { warnOnce } from './util';
 
@@ -108,27 +109,8 @@ export async function pruneCache(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// claude.ai API (not public: only the fields below are relied on)
+// claude.ai API (shape: see conversation.ts)
 // ---------------------------------------------------------------------------
-
-interface ApiContent {
-  type?: string;
-  text?: unknown;
-}
-
-interface ApiMessage {
-  uuid?: string;
-  parent_message_uuid?: string;
-  index?: number;
-  sender?: string;
-  text?: unknown;
-  content?: unknown;
-}
-
-interface ApiConversation {
-  chat_messages?: unknown;
-  current_leaf_message_uuid?: string;
-}
 
 function readCookie(name: string): string | null {
   try {
@@ -171,47 +153,6 @@ async function organizations(): Promise<string[]> {
   }
   orgCache = ids;
   return ids;
-}
-
-function messageText(m: ApiMessage): string {
-  if (Array.isArray(m.content)) {
-    const text = (m.content as (ApiContent | null)[])
-      .filter((c): c is ApiContent & { text: string } => !!c && c.type === 'text' && typeof c.text === 'string')
-      .map((c) => c.text)
-      .join('\n');
-    if (text.trim()) return text;
-  }
-  return typeof m.text === 'string' ? m.text : '';
-}
-
-// The conversation is a tree (edits and retries create branches). The
-// visible branch is the path from the current leaf up to the root.
-export function parseConversation(data: unknown): ApiQuestion[] | null {
-  if (!data || typeof data !== 'object') return null;
-  const conv = data as ApiConversation;
-  const messages = conv.chat_messages;
-  if (!Array.isArray(messages)) return null;
-  const byId = new Map<string, ApiMessage>(
-    (messages as (ApiMessage | null)[]).filter((m): m is ApiMessage => !!m && !!m.uuid).map((m) => [m.uuid!, m])
-  );
-  let branch: ApiMessage[] = [];
-  const leaf = conv.current_leaf_message_uuid ? byId.get(conv.current_leaf_message_uuid) : undefined;
-  if (leaf) {
-    const seen = new Set<string | undefined>();
-    for (let m: ApiMessage | undefined = leaf; m && !seen.has(m.uuid); m = byId.get(m.parent_message_uuid ?? '')) {
-      seen.add(m.uuid);
-      branch.push(m);
-    }
-    branch.reverse();
-  } else {
-    branch = (messages as ApiMessage[]).toSorted((a, b) => (a.index || 0) - (b.index || 0));
-  }
-  // pos = 1-based position in the branch, which is what the page shows as
-  // "Message <pos> of <n>" (aria-posinset) on the rendered turn.
-  return branch
-    .map((m, i) => ({ m, pos: i + 1 }))
-    .filter(({ m }) => m.sender === 'human')
-    .map(({ m, pos }) => ({ text: messageText(m), pos }));
 }
 
 /** Each question in order, or null if the API is unavailable. */

@@ -11,6 +11,7 @@
 import * as S from './selectors';
 import * as Sources from './sources';
 import { LOCATION_EVENT } from './events';
+import { watchConversations } from './intercept';
 import type { ApiQuestion, Entry, LoadReason, LoadState, Query, RenderedItem, Status, Strategy, View } from './types';
 import { LOG, safe, warnOnce } from './util';
 
@@ -1060,7 +1061,7 @@ async function scanAll({
 // Shared with debugReport().
 const debugState = {
   convId: null as string | null,
-  source: 'none' as 'none' | 'page' | 'cache' | 'api',
+  source: 'none' as 'none' | 'page' | 'cache' | 'api' | 'claude.ai response',
   api: 'not tried',
   questions: 0,
   rendered: 0,
@@ -1095,12 +1096,19 @@ export function createSession(view: View, convId: string | null): Session {
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let savedVersion = 0;
   let scanLedger: Ledger | null = null; // fresh list built during a page-only "Load all"
+  let unwatchConversations: (() => void) | null = null;
   const coverage = createCoverage();
   const ledger = createLedger();
   const cache = convId ? Sources.createCache(convId) : null;
 
   async function start() {
     Object.assign(debugState, { convId, source: 'page', api: 'not tried', questions: 0, rendered: 0 });
+    // 0. The conversation claude.ai itself loads (relayed by page-bridge.ts):
+    // complete, and needs no request of our own. May arrive at any time,
+    // including right now if the page loaded it before we started.
+    unwatchConversations = watchConversations((payload) => {
+      if (payload.convId === convId && !stopped) applyQuestions(payload.questions, 'claude.ai response');
+    });
     // 1. What we remembered from an earlier visit: shown immediately.
     if (cache) {
       const record = await Promise.race([
@@ -1108,7 +1116,7 @@ export function createSession(view: View, convId: string | null): Session {
         new Promise<null>((r) => setTimeout(() => r(null), CACHE_WAIT_MS)),
       ]).catch(() => null);
       if (stopped) return;
-      if (record && record.items.length) {
+      if (record && record.items.length && !ledger.isAuthoritative()) {
         ledger.seed(record.items);
         complete = record.complete;
         savedVersion = ledger.version;
@@ -1132,8 +1140,9 @@ export function createSession(view: View, convId: string | null): Session {
     // A real scroll by the user ends any programmatic seek.
     for (const type of USER_SCROLL_EVENTS) window.addEventListener(type, onUserScroll, { passive: true });
     acquireFeed();
-    // 3. The complete list from claude.ai's API.
-    refreshFromApi();
+    // 3. Our own request to claude.ai's API, unless claude.ai's response
+    // already gave us the list.
+    if (!ledger.isAuthoritative()) refreshFromApi();
   }
 
   function acquireFeed() {
@@ -1243,21 +1252,27 @@ export function createSession(view: View, convId: string | null): Session {
     }
     apiLast = performance.now();
     if (stopped) return false;
-    // An empty answer for a chat that shows messages is not believable
-    // (a brand-new chat the API has not caught up with yet).
-    if (texts && (texts.length || !items.length)) {
+    if (texts && applyQuestions(texts, 'api')) {
       apiState = 'ok';
       debugState.api = `ok (${texts.length} questions)`;
-      debugState.source = 'api';
-      ledger.setAuthoritative(texts);
-      complete = true;
-      rebuild();
-      saveNow();
       return true;
     }
     apiState = 'failed';
     debugState.api = texts ? 'empty answer' : 'unavailable (see warning above)';
     return false;
+  }
+
+  // The complete list of questions, from the API or claude.ai's response.
+  function applyQuestions(texts: readonly ApiQuestion[], source: 'api' | 'claude.ai response'): boolean {
+    // An empty answer for a chat that shows messages is not believable
+    // (a brand-new chat the API has not caught up with yet).
+    if (!texts.length && items.length) return false;
+    debugState.source = source;
+    ledger.setAuthoritative(texts);
+    complete = true;
+    rebuild();
+    saveNow();
+    return true;
   }
 
   // A question appeared that the API answer did not have (you just sent
@@ -1462,6 +1477,8 @@ export function createSession(view: View, convId: string | null): Session {
     stopped = true;
     cancelLoad();
     cancelSeek();
+    unwatchConversations?.();
+    unwatchConversations = null;
     if (bodyObserver) bodyObserver.disconnect();
     if (feedObserver) feedObserver.disconnect();
     if (tracker) tracker.destroy();

@@ -30,6 +30,8 @@ VARIANTS = [
     "&virtual=1&estimate=1&api=1",
     "&virtual=1&estimate=1&api=1&cds=1",
     "&virtual=1&estimate=1&cds=1",
+    "&virtual=1&estimate=1&intercept=1",
+    "&virtual=1&estimate=1&intercept=1&cds=1",
 ]
 TIMEOUT_S = 120
 

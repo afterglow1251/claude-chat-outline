@@ -21,6 +21,9 @@
                       add &dark=1 for dark mode
     ?api=1            serve claude.ai's conversation API from the fixture data
                       (all questions, including ones not loaded in the page)
+    ?intercept=1      the app loads the conversation itself and the extension's
+                      own API request fails: the list must come from the
+                      response the app receives (page-bridge.js)
 -->
 <html lang="en">
 <head>
@@ -76,6 +79,64 @@
         },
       },
     };
+  </script>
+  <script>
+    // ---- Fake claude.ai server (?api=1, ?intercept=1) --------------------
+    // Installed before page-bridge.js, as claude.ai's real network is.
+    // GET /api/organizations/<org>/chat_conversations/<id> returns every
+    // message of the chat (also ones not loaded in the page) as a tree with
+    // an abandoned branch (an edited first question) that must not appear.
+    //  ?api=1        the extension's own request works (org from the cookie).
+    //  ?intercept=1  only the app's own request works (another org, no
+    //                cookie, /api/organizations fails): the outline can only
+    //                get the list from the response the app receives.
+    window.apiCalls = 0;
+    (() => {
+      const p = new URLSearchParams(location.search);
+      const API = p.has('api');
+      const INTERCEPT = p.has('intercept');
+      if (!API && !INTERCEPT) return;
+      const ORG = API ? 'org-1' : 'org-app';
+      if (API) document.cookie = 'lastActiveOrg=org-1; path=/';
+      const realFetch = window.fetch.bind(window);
+      const json = (data) => new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } });
+      const conversation = (chat) => {
+        const messages = [];
+        let parent = '00000000-0000-4000-8000-000000000000';
+        chat.questions.forEach((q, i) => {
+          if (i === 0) {
+            messages.push({ uuid: 'old-edit', parent_message_uuid: parent, sender: 'human', index: 0, content: [{ type: 'text', text: 'An old version of the first question' }] });
+          }
+          const h = { uuid: `h${i}`, parent_message_uuid: parent, sender: 'human', index: 2 * i, content: q ? [{ type: 'text', text: q }, { type: 'tool_use' }] : [], text: q };
+          const a = { uuid: `a${i}`, parent_message_uuid: h.uuid, sender: 'assistant', index: 2 * i + 1, content: [{ type: 'text', text: 'answer' }] };
+          messages.push(h, a);
+          parent = a.uuid;
+        });
+        return { uuid: 'x', chat_messages: messages, current_leaf_message_uuid: parent };
+      };
+      window.fetch = async (url, opts) => {
+        const u = new URL(url instanceof Request ? url.url : url, location.href);
+        if (u.pathname === '/api/organizations') return API ? json([{ uuid: ORG }]) : new Response('', { status: 404 });
+        const m = u.pathname.match(/^\/api\/organizations\/([\w-]+)\/chat_conversations\/([\w-]+)$/);
+        if (m) {
+          if (m[1] !== ORG) return new Response('', { status: 404 });
+          window.apiCalls++;
+          const chat = CHATS[m[2]];
+          await new Promise((r) => setTimeout(r, 100));
+          return chat ? json(conversation(chat)) : new Response('', { status: 404 });
+        }
+        return realFetch(url, opts);
+      };
+      // Like claude.ai: the app loads the conversation it shows.
+      window.appLoadConversation = () => {
+        const id = location.pathname.match(/^\/chat\/([\w-]+)/)?.[1];
+        if (INTERCEPT && id) {
+          fetch(`/api/organizations/${ORG}/chat_conversations/${id}?tree=True&rendering_mode=messages`)
+            .then((r) => r.json())
+            .catch(() => {});
+        }
+      };
+    })();
   </script>
   <!-- In the real extension this runs in the page ("MAIN") world. -->
   <script src="/dist/page-bridge.js"></script>
@@ -304,6 +365,7 @@
 
     // Full render, only on navigation (a new conversation).
     function renderFeed() {
+      if (window.appLoadConversation) window.appLoadConversation();
       const chat = currentChat();
       const scroller = document.getElementById('scroller');
       if (!chat) { scroller.replaceChildren(); feed = null; return; }
@@ -380,44 +442,6 @@
       feed = newFeed();
       feed.append(...old.childNodes);
       old.replaceWith(feed);
-    }
-
-    // ---- Fake claude.ai API (?api=1) -----------------------------------
-    // GET /api/organizations and /api/organizations/<org>/chat_conversations/<id>.
-    // Returns every message of the chat (also ones not loaded in the page) as
-    // a tree with an abandoned branch (an edited first question) that must
-    // not appear in the outline.
-    window.apiCalls = 0;
-    if (params.has('api')) {
-      document.cookie = 'lastActiveOrg=org-1; path=/';
-      const realFetch = window.fetch.bind(window);
-      const json = (data) => new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } });
-      const conversation = (chat) => {
-        const messages = [];
-        let parent = '00000000-0000-4000-8000-000000000000';
-        chat.questions.forEach((q, i) => {
-          if (i === 0) {
-            messages.push({ uuid: 'old-edit', parent_message_uuid: parent, sender: 'human', index: 0, content: [{ type: 'text', text: 'An old version of the first question' }] });
-          }
-          const h = { uuid: `h${i}`, parent_message_uuid: parent, sender: 'human', index: 2 * i, content: q ? [{ type: 'text', text: q }, { type: 'tool_use' }] : [], text: q };
-          const a = { uuid: `a${i}`, parent_message_uuid: h.uuid, sender: 'assistant', index: 2 * i + 1, content: [{ type: 'text', text: 'answer' }] };
-          messages.push(h, a);
-          parent = a.uuid;
-        });
-        return { uuid: 'x', chat_messages: messages, current_leaf_message_uuid: parent };
-      };
-      window.fetch = async (url, opts) => {
-        const u = new URL(url, location.href);
-        if (u.pathname === '/api/organizations') return json([{ uuid: 'org-1' }]);
-        const m = u.pathname.match(/^\/api\/organizations\/org-1\/chat_conversations\/([\w-]+)$/);
-        if (m) {
-          window.apiCalls++;
-          const chat = CHATS[m[1]];
-          await new Promise((r) => setTimeout(r, 100));
-          return chat ? json(conversation(chat)) : new Response('', { status: 404 });
-        }
-        return realFetch(url, opts);
-      };
     }
 
     document.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => navigate(b.dataset.nav)));

@@ -47,6 +47,8 @@
   const variant = new URLSearchParams(location.search).get('variant') || 'testid';
   const VIRTUAL = new URLSearchParams(location.search).has('virtual');
   const API = new URLSearchParams(location.search).has('api');
+  // The list comes from the response the app itself receives; the extension's own request fails.
+  const INTERCEPT = new URLSearchParams(location.search).has('intercept');
   const host = () => document.getElementById('claude-outline-host');
   const root = () => host().shadowRoot;
   const items = () => Array.from(root().querySelectorAll('.list button'));
@@ -96,8 +98,8 @@
       return;
     }
 
-    if (API) {
-      // ---- API: every question at once, never changing ------------------
+    if (API || INTERCEPT) {
+      // ---- API / intercepted response: every question at once -----------
       const chat = fixture.CHATS['aaaaaaaa-0000-4000-8000-000000000001'];
       const all = () => chat.questions.map(toLabel);
       check(await waitFor(() => labels().join('|') === all().join('|'), 3000), 'all questions listed at once, including ones not loaded in the page', labels().join(' | '));
@@ -147,15 +149,21 @@
       const streamDone = fixture.stream('API streamed question');
       check(await waitFor(() => labels()[labels().length - 1] === 'API streamed question', 2000), 'question you just sent is listed immediately');
       await streamDone;
-      check(await waitFor(() => window.apiCalls > callsBefore, 6000), 'API asked again after a new question');
-      await sleep(300);
-      check(labels().join('|') === all().join('|'), 'list matches the API after the refresh', labels().join(' | '));
+      if (INTERCEPT) {
+        await sleep(1500);
+        check(labels()[labels().length - 1] === 'API streamed question', 'question you just sent stays listed');
+      } else {
+        check(await waitFor(() => window.apiCalls > callsBefore, 6000), 'API asked again after a new question');
+        await sleep(300);
+        check(labels().join('|') === all().join('|'), 'list matches the API after the refresh', labels().join(' | '));
+      }
 
       // URL changes inside the same chat keep everything
       const callsNow = window.apiCalls;
       history.replaceState({}, '', location.pathname + location.search + '#same-chat');
       await sleep(300);
-      check(window.apiCalls === callsNow && labels().join('|') === all().join('|'), 'URL change within the same chat keeps the session');
+      const expectNow = INTERCEPT ? [...all(), 'API streamed question'] : all();
+      check(window.apiCalls === callsNow && labels().join('|') === expectNow.join('|'), 'URL change within the same chat keeps the session');
 
       fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
       const allB = fixture.CHATS['bbbbbbbb-0000-4000-8000-000000000002'].questions.map(toLabel);
