@@ -109,7 +109,7 @@
     const seen = new Set();
     const hits = [];
     for (const source of nodes) {
-      const turn = safe('closest', () => source.closest('article'), null) || source;
+      const turn = safe('closest', () => source.closest(S.turn), null) || source;
       if (seen.has(turn)) continue;
       seen.add(turn);
       hits.push({ turn, source });
@@ -117,13 +117,19 @@
     return hits;
   }
 
+  // innerText keeps the line break between blocks (a code block and the
+  // paragraph after it); textContent would glue them together.
+  function blockText(el) {
+    return safe('innerText', () => el.innerText, '') || q.text(el);
+  }
+
   function messageText({ turn, source }) {
     // Strategies 1 and 3 match the message body directly.
-    if (source !== turn) return q.text(source);
-    // Strategy 2 matches the whole article; its text would include the
+    if (source !== turn) return blockText(source);
+    // Strategy 2 matches the whole turn; its text would include the
     // heading and button labels, so look for the body inside it first.
     const body = q.one(turn, S.userMessageBody);
-    if (body) return q.text(body);
+    if (body) return blockText(body);
     // The "You said: …" heading is a screen-reader heading that carries the
     // message itself. If it is empty after the prefix, the message has no
     // text (attachment only); don't fall back to the article, whose text
@@ -137,9 +143,16 @@
     return text.length <= LABEL_MAX ? text : text.slice(0, LABEL_MAX - 1).trimEnd() + '…';
   }
 
+  // Code fences ("```python" and the closing "```" lines) are in the stored
+  // message but not in the rendered one; drop them so both read the same.
+  function plainText(text) {
+    return (text || '').replace(/^[ \t]*```[^\n`]*$/gm, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   function toItem(hit) {
-    const full = messageText(hit).replace(/\s+/g, ' ').trim();
-    return { target: hit.turn, full, label: full ? truncate(full) : ATTACHMENT_LABEL };
+    const full = plainText(messageText(hit));
+    const pos = hit.turn !== hit.source ? safe('position', () => S.turnPosition(hit.turn), null) : null;
+    return { target: hit.turn, full, pos, label: full ? truncate(full) : ATTACHMENT_LABEL };
   }
 
   // status: 'no-feed' | 'empty' | 'selectors-broken' | 'ok'
@@ -192,9 +205,11 @@
     return full.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').slice(0, KEY_LEN);
   }
 
+  // text: a string, or { text, pos } from the API.
   function makeEntry(text) {
-    const full = (text || '').replace(/\s+/g, ' ').trim();
-    return { key: keyOf(full), full, label: full ? truncate(full) : ATTACHMENT_LABEL, node: null, offset: null, pending: false };
+    const pos = text && typeof text === 'object' ? text.pos || null : null;
+    const full = plainText(text && typeof text === 'object' ? text.text : text);
+    return { key: keyOf(full), full, pos, label: full ? truncate(full) : ATTACHMENT_LABEL, node: null, offset: null, pending: false };
   }
 
   // Longest common subsequence of keys, as [[i in a, j in b], ...] in order.
@@ -259,6 +274,7 @@
       const feedTop = feed.getBoundingClientRect().top;
       return items.map((item) => {
         const e = makeEntry(item.full);
+        e.pos = item.pos || null;
         e.node = item.target;
         e.offset = item.target.getBoundingClientRect().top - feedTop;
         return e;
@@ -302,8 +318,48 @@
       absorbGrowing(seen, false);
     }
 
+    // Authoritative mode, exact: the page's "Message N of M" position equals
+    // the API position. Accepted when most texts agree too (so a different
+    // numbering can never attach the wrong messages); a text that differs
+    // (a code block, markdown) is then still attached by its position.
+    function absorbByPosition(seen) {
+      if (!seen.every((s) => s.pos) || !entries.length || !entries.every((e) => e.pos)) return false;
+      const byPos = new Map(entries.map((e, j) => [e.pos, j]));
+      const maxPos = entries[entries.length - 1].pos;
+      let compared = 0;
+      let agreed = 0;
+      for (const s of seen) {
+        const j = byPos.get(s.pos);
+        if (j === undefined) {
+          if (s.pos <= maxPos) return false; // numbering doesn't line up
+          continue;
+        }
+        if (s.key && entries[j].key) {
+          compared++;
+          if (s.key === entries[j].key) agreed++;
+        }
+      }
+      if (compared && agreed * 2 < compared) return false;
+      for (const s of seen) {
+        const j = byPos.get(s.pos);
+        if (j !== undefined) {
+          entries[j].node = s.node;
+          entries[j].offset = s.offset;
+        } else {
+          // A question newer than the API answer (just sent).
+          s.pending = true;
+          entries.push(s);
+          byPos.set(s.pos, entries.length - 1);
+          wantsRefresh = true;
+          changed();
+        }
+      }
+      return true;
+    }
+
     // Authoritative mode: find where the rendered run sits in the list.
     function absorbContiguous(seen, feed) {
+      if (absorbByPosition(seen)) return true;
       const n = entries.length;
       const fits = (start) => {
         if (start < 0) return false;
@@ -727,7 +783,17 @@
     const top = containerTop(container);
     const turns = q.all(feed, S.turn);
     const el = turns.find((t) => t.getBoundingClientRect().bottom > top) || turns[0];
-    return { el, top: el ? el.getBoundingClientRect().top : 0, feed, height: feedHeight(feed), container };
+    const pos = el ? safe('position', () => S.turnPosition(el), null) : null;
+    return { el, pos, top: el ? el.getBoundingClientRect().top : 0, feed, height: feedHeight(feed), container };
+  }
+
+  // The anchor turn itself, or (if claude.ai re-created it) the turn now
+  // rendered at the same position in the conversation.
+  function anchorElement(anchor) {
+    if (anchor.el && anchor.el.isConnected) return anchor.el;
+    if (!anchor.pos) return null;
+    const feed = anchor.feed.isConnected ? anchor.feed : findFeed();
+    return q.all(feed, S.turn).find((t) => safe('position', () => S.turnPosition(t), null) === anchor.pos) || null;
   }
 
   // Returns how far the anchor had moved (px), i.e. the height of what was
@@ -735,10 +801,10 @@
   // the growth of the feed is the best estimate.
   function restoreAnchor(anchor) {
     if (!anchor) return 0;
-    const delta =
-      anchor.el && anchor.el.isConnected
-        ? anchor.el.getBoundingClientRect().top - anchor.top
-        : feedHeight(anchor.feed.isConnected ? anchor.feed : findFeed()) - anchor.height;
+    const el = anchorElement(anchor);
+    const delta = el
+      ? el.getBoundingClientRect().top - anchor.top
+      : feedHeight(anchor.feed.isConnected ? anchor.feed : findFeed()) - anchor.height;
     if (Math.abs(delta) > 1) scrollContainerBy(anchor.container, delta, 'instant');
     return delta;
   }
@@ -788,13 +854,48 @@
         await nextFrame();
       }
     } finally {
-      shift = restoreAnchor(anchor);
+      const feed = getFeed();
+      if (anchor && feed) shift = await returnToAnchor(anchor.container, feed, anchor, () => {});
     }
     return { reason, clicks, shift };
   }
 
   // Scrolls from the top of the chat to the bottom one screen at a time,
   // calling absorb() after each step, then returns to where the user was.
+  // After a scan the heights above the reading position may differ (turns
+  // measured instead of estimated), so the old scrollTop is only a first
+  // guess. Find the anchor turn again (by position in the conversation if
+  // it was re-created), stepping toward it while it is not rendered, then
+  // line it up exactly. Repeats while measuring keeps moving it.
+  async function returnToAnchor(container, feed, anchor, absorb) {
+    const never = new AbortController().signal;
+    let aligned = 0;
+    let moved = 0; // total correction applied while the anchor was rendered
+    for (let pass = 0; pass < 20 && anchor; pass++) {
+      await settle(feed, SCAN_SETTLE_MS, never);
+      absorb();
+      const el = anchorElement(anchor);
+      if (el) {
+        const delta = el.getBoundingClientRect().top - anchor.top;
+        if (Math.abs(delta) <= 1) {
+          if (++aligned >= 2) return moved;
+          continue;
+        }
+        aligned = 0;
+        moved += delta;
+        scrollContainerBy(container, delta, 'instant');
+        continue;
+      }
+      const positions = q.all(feed, S.turn).map((t) => safe('position', () => S.turnPosition(t), null)).filter(Boolean);
+      if (!anchor.pos || !positions.length) {
+        return moved + restoreAnchor(anchor); // best effort: by the change in feed height
+      }
+      const up = anchor.pos < Math.min(...positions);
+      scrollContainerBy(container, (up ? -0.8 : 0.8) * containerHeight(container), 'instant');
+    }
+    return moved;
+  }
+
   // reason: 'done' | 'cancelled' | 'timeout'
   async function scanAll({ signal, feed, absorb, onProgress }) {
     const container = findScrollContainer(feed);
@@ -819,9 +920,7 @@
       }
     } finally {
       scrollContainerTo(container, saved);
-      await settle(feed, SCAN_SETTLE_MS, signal);
-      absorb();
-      restoreAnchor(anchor);
+      await returnToAnchor(container, feed, anchor, absorb);
     }
     return { reason };
   }
@@ -1048,6 +1147,9 @@
         const i = list.indexOf(entry);
         if (i === -1) return;
         if (mounted(entry)) return safe('scroll', () => scrollToElement(container, entry.node));
+        // Rendered but not attached (its text didn't match): find it by position.
+        const byPos = entry.pos && q.all(feed, S.turn).find((t) => safe('position', () => S.turnPosition(t), null) === entry.pos);
+        if (byPos) return safe('scroll', () => scrollToElement(container, byPos));
         const rendered = [];
         list.forEach((e, j) => mounted(e) && rendered.push(j));
         const feedTop = feed.getBoundingClientRect().top;

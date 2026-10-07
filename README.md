@@ -95,7 +95,11 @@ All selectors live in **`src/selectors.js`**:
 - `userMessageStrategies`: ordered fallbacks for finding *your* messages. The first one
   that returns anything wins.
 - `userMessageBody`, `userHeadingPrefix`: used to get clean label text.
-- `turn`: one conversation turn (used to measure what is rendered).
+- `turn`, `turnPosition`: one conversation turn (currently
+  `div[role="article"][aria-label="Message 13 of 34"]`) and its position in the
+  conversation (`aria-posinset`, or the number in the label). The position is how a
+  rendered message is matched to the API's list, so questions with code blocks or
+  markdown, which render differently from how they are stored, still navigate.
 - `loadEarlierButton`: the text of the lazy-load button.
 - `conversationPaths`: which URLs show the panel.
 - `layout.scrollOffset` / `layout.panelTop`: sticky-header height adjustments.
@@ -175,8 +179,10 @@ node test/ledger.test.js       # ledger unit test (virtualized feed simulated in
   strategy 2), `&variant=broken` (no hooks, which exercises the error state),
   `&virtual=1` (turns far from the viewport are unmounted like on claude.ai) and
   `&nonum=1` (aria-labels without numbers), `&estimate=1` (with `virtual`: never-rendered
-  turns get an estimated height, so positions shift while scrolling) and `&api=1` (the
-  fixture answers the conversation API with every question).
+  turns get an estimated height, so positions shift while scrolling), `&api=1` (the
+  fixture answers the conversation API with every question) and `&cds=1` (claude.ai's
+  current markup: `transcript-row` > `div[role=article]` with `aria-posinset`, plus a
+  question containing a code block).
 
 ### Manual checklist on claude.ai
 

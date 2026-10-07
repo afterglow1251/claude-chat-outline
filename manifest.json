@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude Chat Outline",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A clickable outline of your own questions in claude.ai chats.",
   "minimum_chrome_version": "114",
   "permissions": ["storage"],

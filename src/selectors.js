@@ -25,8 +25,20 @@
       '[role="feed"]',
     ],
 
-    // One conversation turn (user or assistant).
-    turn: 'article[aria-label^="Message"]',
+    // One conversation turn (user or assistant). claude.ai currently renders
+    // <div role="article" aria-label="Message 13 of 34" aria-posinset="13">
+    // inside a [data-testid="transcript-row"]; older builds used <article>.
+    turn: '[role="article"][aria-label^="Message"], article[aria-label^="Message"]',
+
+    // Position of a turn in the conversation (1-based), so a rendered
+    // message can be matched to the API's list exactly, whatever its text
+    // looks like once rendered (code blocks, markdown, attachments).
+    turnPosition(turn) {
+      const posinset = Number(turn.getAttribute('aria-posinset'));
+      if (posinset > 0) return posinset;
+      const m = /^\s*Message\s+(\d+)\s+of\s+\d+/i.exec(turn.getAttribute('aria-label') || '');
+      return m ? Number(m[1]) : null;
+    },
 
     // Ordered fallback chain. The first strategy returning > 0 nodes is used.
     // Each `find(feed, q)` gets the feed element and the safe query helpers
@@ -37,9 +49,9 @@
         find: (feed, q) => q.all(feed, '[data-testid="user-message"]'),
       },
       {
-        name: 'article[aria-label^="Message"] with a "You said:" heading',
+        name: 'turn with a "You said:" heading',
         find: (feed, q) =>
-          q.all(feed, 'article[aria-label^="Message"]').filter((a) => userHeadingIn(a, q)),
+          q.all(feed, '[role="article"][aria-label^="Message"], article[aria-label^="Message"]').filter((a) => userHeadingIn(a, q)),
       },
       {
         name: '.font-user-message',

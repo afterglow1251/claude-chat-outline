@@ -14,6 +14,9 @@
     ?estimate=1       with ?virtual=1: turns never rendered get an estimated
                       height (like tanstack/react-virtual), so the feed height
                       and positions shift as you scroll
+    ?cds=1            claude.ai's current markup: [data-testid=transcript-row] >
+                      div[role=article][aria-posinset], and question 3 of chat A
+                      is a code block + text (stored with a ``` fence)
     ?api=1            serve claude.ai's conversation API from the fixture data
                       (all questions, including ones not loaded in the page)
 -->
@@ -94,6 +97,8 @@
     const VARIANT = params.get('variant') || 'testid';
     const VIRTUAL = params.has('virtual');
     const ESTIMATE = params.has('estimate');
+    const CDS = params.has('cds');
+    const CODE_QUESTION = '```notebook-python\nmu, sigma = X.mean(0), X.std(0)\nXn = (X - mu) / sigma\n```\nwhat is mu and what is sigma';
     const ESTIMATED_HEIGHT = 300;
     const NONUM = params.has('nonum');
     const turnLabel = (n, m) => (NONUM ? 'Message' : `Message ${n} of ${m}`);
@@ -103,6 +108,7 @@
       const qs = [];
       for (let i = 1; i <= n; i++) {
         if (i === 4) qs.push(''); // attachment-only message
+        else if (i === 3 && CDS && prefix === 'Alpha') qs.push(CODE_QUESTION);
         else if (i === 7) qs.push(`${prefix} question ${i}: ` + 'a very long question that keeps going '.repeat(5));
         else qs.push(`${prefix} question ${i}:   how do I   handle case #${i}?`);
       }
@@ -124,19 +130,50 @@
       });
     }
 
+    // claude.ai's current markup: a row wrapper around a div[role=article].
+    function cdsTurn(a, n, m) {
+      const div = document.createElement('div');
+      div.className = a.className;
+      div.setAttribute('role', 'article');
+      div.setAttribute('aria-label', a.getAttribute('aria-label'));
+      div.setAttribute('aria-posinset', String(n));
+      div.setAttribute('aria-setsize', String(m));
+      div.append(...a.childNodes);
+      const row = document.createElement('div');
+      row.setAttribute('data-testid', 'transcript-row');
+      row.setAttribute('data-index', String(n - 1));
+      row.append(div);
+      return row;
+    }
+
+    // A message like "```lang\ncode\n```\ntext" renders as <pre><code> + <p>,
+    // and its "You said:" heading only carries the text part.
+    function renderBody(body, text) {
+      const m = /^```[^\n]*\n([\s\S]*?)\n```\n?([\s\S]*)$/.exec(text);
+      if (!m) return (body.textContent = text), text;
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.textContent = m[1];
+      pre.append(code);
+      const p = document.createElement('p');
+      p.textContent = m[2];
+      body.append(pre, p);
+      return m[2];
+    }
+
     function userArticle(text, n, m) {
       const a = document.createElement('article');
       a.className = 'user';
       a.setAttribute('aria-label', turnLabel(n, m));
       const h = document.createElement('h2');
       h.className = 'sr-only';
-      h.textContent = VARIANT === 'broken' ? 'Human message' : `You said: ${text}`;
       const body = document.createElement('div');
       if (VARIANT === 'testid') {
         body.setAttribute('data-testid', 'user-message');
         body.className = 'font-user-message';
       }
-      body.textContent = text;
+      const said = renderBody(body, text);
+      h.textContent = VARIANT === 'broken' ? 'Human message' : `You said: ${said}`;
       if (!text) body.append(Object.assign(document.createElement('img'), { alt: '', width: 40, height: 40 }));
       const actions = document.createElement('button');
       actions.textContent = 'Edit';
@@ -173,7 +210,8 @@
     }
 
     function turnNode(t, n, m) {
-      const node = t.role === 'user' ? userArticle(t.text, n, m) : assistantArticle(t.text, n, m);
+      let node = t.role === 'user' ? userArticle(t.text, n, m) : assistantArticle(t.text, n, m);
+      if (CDS) node = cdsTurn(node, n, m);
       node._turn = { t, n, m };
       return node;
     }
@@ -191,10 +229,11 @@
         if (!el._turn) continue;
         const r = el.getBoundingClientRect();
         const near = r.bottom >= keepTop && r.top <= keepBottom;
-        if (el.tagName === 'ARTICLE' && !near) {
+        const isPlaceholder = el.classList.contains('placeholder');
+        if (!isPlaceholder && !near) {
           el._turn.t.measured = r.height;
           el.replaceWith(placeholder(el._turn));
-        } else if (el.tagName !== 'ARTICLE' && near) {
+        } else if (isPlaceholder && near) {
           el.replaceWith(turnNode(el._turn.t, el._turn.n, el._turn.m));
         }
       }

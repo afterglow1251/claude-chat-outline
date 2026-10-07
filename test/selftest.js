@@ -38,13 +38,13 @@
   const current = () => items().findIndex((b) => b.getAttribute('aria-current') === 'true');
   const statusText = () => root().querySelector('.status-text').textContent;
   const scroller = () => document.getElementById('scroller');
-  const userArticles = () =>
-    Array.from(document.querySelectorAll('article')).filter((a) => /^You said:/.test(a.querySelector('h2').textContent));
+  const turnEls = () => Array.from(document.querySelectorAll('article, [role="article"]'));
+  const userArticles = () => turnEls().filter((a) => /^You said:/.test(a.querySelector('h2').textContent));
   const visible = () => host() && host().style.display !== 'none';
   const key = (target, init) => target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, composed: true, cancelable: true, ...init }));
   const countText = () => root().querySelector('.count').textContent;
   const toLabel = (t) => {
-    const full = t.replace(/\s+/g, ' ').trim();
+    const full = t.replace(/^[ \t]*```[^\n`]*$/gm, ' ').replace(/\s+/g, ' ').trim();
     return full ? (full.length <= 90 ? full : full.slice(0, 89).trimEnd() + '…') : '(attachment)';
   };
   const isSubsequence = (small, big) => {
@@ -96,7 +96,26 @@
       clearInterval(watch);
       check(!changedAt, 'list never changes while scrolling up and down', changedAt);
 
+      if (new URLSearchParams(location.search).has('cds')) {
+        // A question with a code block: stored with a ``` fence, rendered
+        // without it. It must still navigate (it used not to).
+        const codeIdx = labels().findIndex((l) => l.startsWith('mu, sigma'));
+        check(codeIdx !== -1, 'code-block question listed without the ``` fence', labels().join(' | '));
+        const findCode = () => userArticles().find((a) => /what is mu and what is sigma/.test(a.querySelector('h2').textContent));
+        scroller().scrollTop = scroller().scrollHeight;
+        await sleep(300);
+        items()[codeIdx].click();
+        check(await waitFor(() => { const a = findCode(); return a && a.style.outline !== '' && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 8000), 'clicking the code-block question navigates to it');
+        check(await waitFor(() => current() === codeIdx, 2000), 'code-block question becomes active', `current=${current()}`);
+        // and when it is already on screen
+        scroller().scrollTop += 300;
+        await sleep(300);
+        items()[codeIdx].click();
+        check(await waitFor(() => { const a = findCode(); return a && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; }, 3000), 'clicking it again while rendered navigates too');
+      }
+
       // jump to the first question, which needs "Load earlier messages"
+
       const firstText = chat.questions[0];
       const findFirst = () => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(firstText.replace(/\s+/g, ' ').slice(0, 25)));
       check(!findFirst(), 'first question not in the page yet');
@@ -178,8 +197,8 @@
       check(labels().length === stillThere, 'jumping did not change the list', `${labels().length} vs ${stillThere}`);
 
       // ---- active item follows scrolling across unmounted regions ---------
-      scroller().scrollTop = scroller().scrollHeight;
-      check(await waitFor(() => current() === labels().length - 1, 2000), 'bottom -> last question active', `current=${current()}`);
+      // (re-pinned to the bottom: estimated heights can move the page)
+      check(await waitFor(() => { scroller().scrollTop = scroller().scrollHeight; return current() === labels().length - 1; }, 3000), 'bottom -> last question active', `current=${current()}`);
 
       // ---- load all = load earlier + scan the whole chat --------------------
       scroller().scrollTop = scroller().scrollHeight / 2;
@@ -283,7 +302,7 @@
     check(!loadBtn.disabled && /\+$/.test(root().querySelector('.count').textContent), 'count shows "+" and Load all enabled while earlier messages exist');
     scroller().scrollTop = scroller().scrollHeight / 2;
     await sleep(100);
-    const anchor = Array.from(document.querySelectorAll('article')).find((a) => a.getBoundingClientRect().bottom > scroller().getBoundingClientRect().top);
+    const anchor = turnEls().find((a) => a.getBoundingClientRect().bottom > scroller().getBoundingClientRect().top);
     const anchorTop = anchor.getBoundingClientRect().top;
     loadBtn.click();
     check(await waitFor(() => root().querySelector('.status.loading') && !root().querySelector('.status button').hidden, 500), 'spinner + Cancel visible while loading');
@@ -357,7 +376,7 @@
     console.log = (...a) => { logged += a.join(' ') + '\n'; };
     const ret = window.__claudeOutline.debug();
     console.log = orig;
-    check(new RegExp('Strategy in use: ' + (variant === 'heading' ? 'article' : '\\[data-testid')).test(logged) && typeof ret === 'string', '__claudeOutline.debug() reports matched strategy', logged);
+    check(new RegExp('Strategy in use: ' + (variant === 'heading' ? 'turn with' : '\\[data-testid')).test(logged) && typeof ret === 'string', '__claudeOutline.debug() reports matched strategy', logged);
   } catch (err) {
     log(false, 'selftest crashed', String(err && err.stack));
   } finally {

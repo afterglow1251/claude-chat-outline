@@ -172,10 +172,15 @@
     } else {
       branch = messages.slice().sort((a, b) => (a.index || 0) - (b.index || 0));
     }
-    return branch.filter((m) => m.sender === 'human').map(messageText);
+    // pos = 1-based position in the branch, which is what the page shows as
+    // "Message <pos> of <n>" (aria-posinset) on the rendered turn.
+    return branch
+      .map((m, i) => ({ m, pos: i + 1 }))
+      .filter(({ m }) => m.sender === 'human')
+      .map(({ m, pos }) => ({ text: messageText(m), pos }));
   }
 
-  // -> [full text of each question, in order], or null if unavailable.
+  // -> [{ text, pos }] for each question, in order, or null if unavailable.
   async function fetchQuestions(convId) {
     let lastErr = null;
     for (const org of await organizations()) {
