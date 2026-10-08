@@ -1,12 +1,12 @@
 <!doctype html>
 <!--
   Standalone reproduction of claude.ai's chat DOM (as described in the task).
-  Serve with:  python3 test/serve.py   then open http://localhost:8765/chat/aaaaaaaa-0000-4000-8000-000000000001
+  Serve with:  python3 test/browser/serve.py   then open http://localhost:8765/chat/aaaaaaaa-0000-4000-8000-000000000001
   Query params:
     ?variant=testid   (default) user turns expose data-testid + .font-user-message + "You said:" heading
     ?variant=heading  only the "You said:" heading (exercises fallback strategy 2)
     ?variant=broken   no recognisable hooks (exercises the "selectors outdated" state)
-    ?selftest=1       run test/selftest.js and print results
+    ?selftest=1       run test/browser/selftest.js and print results
     ?virtual=1        virtualize like claude.ai: turns more than one screen away
                       from the viewport are replaced by same-height placeholders
     ?nonum=1          article aria-labels without numbers ("Message" instead of
@@ -17,7 +17,7 @@
     ?cds=1            claude.ai's current markup: [data-testid=transcript-row] >
                       div[role=article][aria-posinset], and question 3 of chat A
                       is a code block + text (stored with a ``` fence)
-    ?demo=1           realistic demo chat for README screenshots (test/screenshots.py);
+    ?demo=1           realistic demo chat for README screenshots (test/browser/screenshots.py);
                       add &dark=1 for dark mode
     ?api=1            serve claude.ai's conversation API from the fixture data
                       (all questions, including ones not loaded in the page)
@@ -538,7 +538,7 @@
   <script>
     if (params.has('selftest')) {
       const s = document.createElement('script');
-      s.src = '/test/selftest.js';
+      s.src = '/test/browser/selftest.js';
       document.body.append(s);
     }
   </script>

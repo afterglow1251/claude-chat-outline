@@ -6,7 +6,7 @@
 // cover it. The box follows the message while it is shown (the page may
 // still settle or the user may scroll) and is clipped to the chat's
 // scrolling area, so it never draws over the header or the input.
-import { h } from './dom';
+import { h } from '../core/dom';
 
 const DURATION_MS = 1800;
 const SWEEP_DELAY_MS = 150;

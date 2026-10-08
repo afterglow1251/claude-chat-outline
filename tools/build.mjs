@@ -12,7 +12,7 @@ const options = {
     // Content script (isolated world) and the page-world bridge are separate
     // scripts in manifest.json, so they are separate bundles.
     content: `${root}src/main.ts`,
-    'page-bridge': `${root}src/page-bridge.ts`,
+    'page-bridge': `${root}src/data/page-bridge.ts`,
   },
   outdir: out,
   bundle: true,
@@ -29,7 +29,7 @@ async function copyStatic() {
   const manifest = JSON.parse(await readFile(`${root}src/manifest.json`, 'utf8'));
   manifest.version = pkg.version; // package.json is the one place the version lives
   await writeFile(`${out}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
-  await cp(`${root}src/panel.css`, `${out}/panel.css`);
+  await cp(`${root}src/ui/panel.css`, `${out}/panel.css`);
   await cp(`${root}icons`, `${out}/icons`, { recursive: true });
 }
 

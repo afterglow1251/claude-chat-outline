@@ -1,6 +1,6 @@
-// Render the README screenshots from the demo chat (test/fixture.html?demo=1).
+// Render the README screenshots from the demo chat (test/browser/fixture.html?demo=1).
 //
-// Usage: python3 test/serve.py 8765 &   then   node test/screenshots.mjs
+// Usage: python3 test/browser/serve.py 8765 &   then   node test/browser/screenshots.mjs
 // (CHROME=/path/to/chrome to override). Writes docs/screenshot-light.png and
 // docs/screenshot-dark.png and docs/social-preview.png. Drives headless Chrome over the DevTools
 // protocol with Node's built-in WebSocket, so there are no dependencies.
@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const BASE = process.env.BASE || 'http://127.0.0.1:8765';
 const PORT = 9333;
@@ -56,7 +56,7 @@ try {
   }
   // Social preview card, 1280x640 (upload in GitHub: Settings > Social preview).
   await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 640, deviceScaleFactor: 1, mobile: false });
-  await send('Page.navigate', { url: `${BASE}/test/social-card.html` });
+  await send('Page.navigate', { url: `${BASE}/test/browser/social-card.html` });
   await sleep(1500);
   const { data } = await send('Page.captureScreenshot', { format: 'png' });
   writeFileSync(join(ROOT, 'docs', 'social-preview.png'), Buffer.from(data, 'base64'));

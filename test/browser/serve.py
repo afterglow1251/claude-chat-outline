@@ -1,16 +1,16 @@
 """Serve the extension folder for the fixture.
 
-Every /chat/<id> and /new path returns test/fixture.html, so SPA navigation and
+Every /chat/<id> and /new path returns test/browser/fixture.html, so SPA navigation and
 reloads behave like claude.ai. The self-test POSTs its results to /selftest,
-which test/run.py reads. Usage: python3 test/serve.py [port]
+which test/browser/run.py reads. Usage: python3 test/browser/serve.py [port]
 """
 import http.server
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-RESULTS = {}  # query string -> text posted by test/selftest.js
+RESULTS = {}  # query string -> text posted by test/browser/selftest.js
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -20,7 +20,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path.startswith("/chat/") or path.startswith("/project/") or path == "/new":
-            self.path = "/test/fixture.html"
+            self.path = "/test/browser/fixture.html"
         return super().do_GET()
 
     def do_POST(self):

@@ -5,8 +5,8 @@
 //    seen before is listed in full the moment you open it again.
 // Nothing here talks to any server other than claude.ai itself.
 import { parseConversation } from './conversation';
-import type { ApiQuestion } from './types';
-import { warnOnce } from './util';
+import type { ApiQuestion } from '../core/types';
+import { warnOnce } from '../core/util';
 
 const CACHE_PREFIX = 'outline-cache:';
 const CACHE_MAX_CHATS = 200;

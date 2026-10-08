@@ -1,8 +1,8 @@
 """Run the self-test headlessly in every fixture variant.
 
-Usage: python3 test/run.py [path-to-chrome]
+Usage: python3 test/browser/run.py [path-to-chrome]
 Starts the fixture server on a free port, opens each variant in headless
-Chrome, waits for test/selftest.js to POST its results, and prints them.
+Chrome, waits for test/browser/selftest.js to POST its results, and prints them.
 Exit code 1 if any variant fails.
 """
 import http.server

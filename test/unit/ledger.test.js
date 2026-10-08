@@ -1,6 +1,6 @@
-// Unit test for the question ledger (src/outline.ts) in Node: simulates a
+// Unit test for the question ledger (src/outline/ledger.ts) in Node: simulates a
 // virtualized feed where only turns near the viewport are "mounted", with
-// fresh node objects on every mount (like React). Run: node test/ledger.test.js
+// fresh node objects on every mount (like React). Run: node test/unit/ledger.test.js
 'use strict';
 const path = require('path');
 const assert = require('assert');
@@ -9,9 +9,9 @@ const assert = require('assert');
 globalThis.window = globalThis;
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
 globalThis.console.warn = (...a) => { throw new Error('warn: ' + a.join(' ')); };
-// Bundle src/outline.ts (and what it imports) for Node on the fly.
+// Bundle src/outline/ledger.ts (and what it imports) for Node on the fly.
 const { outputFiles } = require('esbuild').buildSync({
-  entryPoints: [path.join(__dirname, '..', 'src', 'outline.ts')],
+  entryPoints: [path.join(__dirname, '..', '..', 'src', 'outline', 'ledger.ts')],
   bundle: true,
   format: 'cjs',
   platform: 'neutral',

@@ -8,7 +8,7 @@ import {
   PAYLOAD_MAX_QUESTIONS,
   PAYLOAD_TEXT_MAX,
   type ConversationPayload,
-} from './events';
+} from '../core/events';
 
 // JSON overhead per question is small; this bounds the string before parsing.
 const PAYLOAD_MAX_CHARS = PAYLOAD_MAX_QUESTIONS * (PAYLOAD_TEXT_MAX + 64);

@@ -38,18 +38,23 @@ loading or 60 seconds of scanning, and can be cancelled.
 ## Files
 
 ```
-manifest.json
-src/selectors.js    every claude.ai DOM hook + fallback chains (edit this when Claude's UI changes)
-src/sources.js      claude.ai conversation API + per-chat cache
-src/outline.js      extraction, question ledger, scrolling, active tracking, load-all, route changes
-src/panel.js        Shadow DOM panel: rendering, collapse/resize, theme, keyboard, storage
-src/panel.css       panel styles (loaded into the shadow root only)
-src/main.js         wiring + page lifecycle
-src/page-bridge.js  tiny script in the page's JS world (see below)
-icons/              extension icons
-docs/               landing page (GitHub Pages), screenshots, this file
-tools/package.sh    builds the release ZIP
-test/               fixture page, browser self-test, headless runner, ledger unit test, screenshots
+src/manifest.json          manifest (the build adds the version from package.json)
+src/main.ts                wiring + page lifecycle
+src/core/selectors.ts      every claude.ai DOM hook + fallback chains (edit this when Claude's UI changes)
+src/core/                  shared types, event names, logging, DOM builders
+src/data/sources.ts        claude.ai conversation API + per-chat cache
+src/data/page-bridge.ts    tiny script in the page's JS world (see below)
+src/data/                  conversation parsing, relay of claude.ai's own conversation response
+src/outline/outline.ts     session: observers, rebuilds, jumping, load-all, route changes
+src/outline/               extraction, question ledger, scrolling, jump helpers, active tracking, load-all
+src/ui/panel.ts            Shadow DOM panel: rendering, collapse/resize, theme, keyboard, storage
+src/ui/panel.css           panel styles (loaded into the shadow root only)
+icons/                     extension icons
+docs/                      landing page (GitHub Pages), screenshots, this file
+tools/build.mjs            builds the extension into dist/
+tools/package.sh           builds the release ZIP
+test/unit/                 ledger unit test
+test/browser/              fixture page, browser self-test, headless runner, screenshots
 ```
 
 Why `page-bridge.js`: content scripts run in an isolated JavaScript world. Patching
@@ -60,7 +65,7 @@ the content script as DOM events. It reads no page data.
 
 ## If Claude changes their UI, fix it here
 
-All selectors live in **`src/selectors.js`**:
+All selectors live in **`src/core/selectors.ts`**:
 
 - `feed`: the message list container (currently `[role="feed"][aria-label="Chat messages"]`).
 - `userMessageStrategies`: ordered fallbacks for finding *your* messages. The first one
@@ -90,7 +95,7 @@ many questions are known versus rendered.
 
 If the API stops working (claude.ai changes it), the warning "conversation API
 unavailable" appears in the console and the outline falls back to the cache and the page.
-The request is built in `fetchQuestions` in `src/sources.js`.
+The request is built in `fetchQuestions` in `src/data/sources.ts`.
 
 **Step 2: discover the new hooks.** Paste this into the Console, after replacing `PHRASE`
 with a few words from one of *your* messages in the open chat:
@@ -130,24 +135,24 @@ was found but no strategy matched. Start with step 1.
 
 ### Automated fixture
 
-`test/fixture.html` reproduces the DOM structure described above: a scrollable ancestor, a
+`test/browser/fixture.html` reproduces the DOM structure described above: a scrollable ancestor, a
 `role="feed"` list, `Message N of M` articles with `You said:` / `Claude responded:`
 headings, and a "Load earlier messages" button that adds 3 turns per click. It loads the
 content scripts directly, with a small stand-in for `chrome.storage`.
 
 ```sh
-python3 test/run.py            # headless: every variant below, prints PASS/FAIL lines
-python3 test/serve.py          # serves this folder on http://localhost:8765 for manual play
-node test/ledger.test.js       # ledger unit test (virtualized feed simulated in Node)
+python3 test/browser/run.py    # headless: every variant below, prints PASS/FAIL lines
+python3 test/browser/serve.py  # serves this folder on http://localhost:8765 for manual play
+node test/unit/ledger.test.js  # ledger unit test (virtualized feed simulated in Node)
 ```
 
-`test/run.py` needs Google Chrome (pass another binary as the first argument).
+`test/browser/run.py` needs Google Chrome (pass another binary as the first argument).
 
 README screenshots come from a demo chat in the fixture (`?demo=1`, `&dark=1`):
 
 ```sh
-python3 test/serve.py 8765 &
-node test/screenshots.mjs      # writes docs/screenshot-*.png and docs/social-preview.png
+python3 test/browser/serve.py 8765 &
+node test/browser/screenshots.mjs  # writes docs/screenshot-*.png and docs/social-preview.png
 ```
 
 - Manual play: http://localhost:8765/chat/aaaaaaaa-0000-4000-8000-000000000001

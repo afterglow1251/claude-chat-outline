@@ -2,5 +2,5 @@ dist/
 release/
 node_modules/
 docs/
-test/fixture.html
+test/browser/fixture.html
 package-lock.json

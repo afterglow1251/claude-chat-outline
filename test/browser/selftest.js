@@ -1,4 +1,4 @@
-// Automated checks against test/fixture.html. Loaded by ?selftest=1.
+// Automated checks against test/browser/fixture.html. Loaded by ?selftest=1.
 // Results go to the console, a <pre id="results">, and document.title
 // ("SELFTEST PASS" / "SELFTEST FAIL") so a headless browser can read them.
 (async () => {
@@ -451,7 +451,7 @@
     const failed = results.filter((r) => !r.ok).length;
     document.title = failed ? `SELFTEST FAIL (${failed}/${results.length})` : `SELFTEST PASS (${results.length})`;
     pre.dataset.done = '1';
-    // For test/run.py (headless): hand the results to the fixture server.
+    // For test/browser/run.py (headless): hand the results to the fixture server.
     const extensionWarnings = warnings.filter((w) => w.includes('[Claude Outline]'));
     const report = document.title + '\n' + pre.textContent + (extensionWarnings.length ? '\nExtension warnings:\n' + extensionWarnings.join('\n') : '');
     fetch('/selftest' + location.search, { method: 'POST', body: report }).catch(() => {});

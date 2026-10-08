@@ -3,7 +3,7 @@
 // claude.ai's page receives). Pure: no DOM, no chrome.* APIs.
 //
 // The API is not public. Only the fields below are relied on.
-import type { ApiQuestion } from './types';
+import type { ApiQuestion } from '../core/types';
 
 interface ApiContent {
   type?: string;

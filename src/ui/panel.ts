@@ -2,12 +2,12 @@
 // theming, keyboard handling and persisted settings. It knows nothing about
 // Claude's DOM except for the theme hints on <html> and the optional "push"
 // padding on <body>.
-import { h, icon } from './dom';
-import { HOST_ID } from './events';
+import { h, icon } from '../core/dom';
+import { HOST_ID } from '../core/events';
 import { createHighlighter } from './highlight';
 import { createQuestionList } from './question-list';
-import * as S from './selectors';
-import type { LoadReason, LoadState, RenderResult, Status, View } from './types';
+import * as S from '../core/selectors';
+import type { LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
 export { HOST_ID };
 const WIDTH_MIN = 200;

@@ -1,9 +1,10 @@
 // Entry point of the content script: wires the outline core to the panel
 // and handles the page lifecycle (SPA route changes, bfcache, teardown).
-import { DEBUG_EVENT } from './events';
-import { createSession, debugReport, isConversationPath, renderedTurns, watchLocation, type Session } from './outline';
-import { createPanel, HOST_ID, type Panel } from './panel';
-import { conversationId, pruneCache } from './sources';
+import { DEBUG_EVENT } from './core/events';
+import { isConversationPath } from './outline/extract';
+import { createSession, debugReport, renderedTurns, watchLocation, type Session } from './outline/outline';
+import { createPanel, HOST_ID, type Panel } from './ui/panel';
+import { conversationId, pruneCache } from './data/sources';
 
 let panel: Panel | null = null;
 let session: Session | null = null;

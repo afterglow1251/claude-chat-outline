@@ -1,3 +1,5 @@
+// Logging and error containment: a failure in one part of the outline is
+// logged once and degrades that part, never the page.
 export const LOG = '[Claude Outline]';
 
 const warned = new Set<string>();

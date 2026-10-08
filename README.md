@@ -164,7 +164,7 @@ first. You can also always use the › button or the "Outline" tab.
 
 Bug reports, ideas and pull requests are welcome. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 for how it works, how to fix it when claude.ai changes its markup, and how to run the tests
-(`python3 test/run.py`).
+(`python3 test/browser/run.py`).
 
 If you find it useful, **[⭐ star the repo](https://github.com/DereviankoAndrew/claude-chat-outline/stargazers)**
 and share it with someone who lives in long Claude chats.

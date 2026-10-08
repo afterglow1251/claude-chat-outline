@@ -1,9 +1,9 @@
 // The list of questions inside the panel: filter field, starred-only toggle,
 // the list itself, and keyboard navigation. Every row is a button with
 // data-index = the question's index in the session's list.
-import { h, icon } from './dom';
-import { loadStars, saveStars } from './sources';
-import type { ListItem } from './types';
+import { h, icon } from '../core/dom';
+import { loadStars, saveStars } from '../data/sources';
+import type { ListItem } from '../core/types';
 
 const ICON_STAR = 'M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z';
 // Transitions are opacity only: nothing shifts, the layout is final from the

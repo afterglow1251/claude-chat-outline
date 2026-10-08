@@ -12,8 +12,8 @@
     "format": "prettier --write src tools",
     "format:check": "prettier --check src tools",
     "check": "npm run typecheck && npm run lint && npm run format:check",
-    "test:unit": "node test/ledger.test.js",
-    "test:browser": "python3 test/run.py",
+    "test:unit": "node test/unit/ledger.test.js",
+    "test:browser": "python3 test/browser/run.py",
     "test": "npm run build && npm run test:unit && npm run test:browser",
     "package": "npm run build && sh tools/package.sh"
   },
