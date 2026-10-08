@@ -282,7 +282,7 @@
             (m, i) => `<li data-row="${i}"><span class="s-num">${i + 1}.</span><span class="s-label">${esc(m.q)}</span><span class="s-star">${STAR}</span></li>`
           ).join('')}
         </ol>
-        <p class="s-empty">No starred questions match.</p>
+        <p class="s-empty">No questions match.</p>
       </div>
       <div class="s-tab"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg><span>Outline</span><span class="s-tab-n">${N}</span></div>
 
