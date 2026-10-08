@@ -164,6 +164,12 @@
     const CODE_QUESTION = '```notebook-python\nmu, sigma = X.mean(0), X.std(0)\nXn = (X - mu) / sigma\n```\nwhat is mu and what is sigma';
     const ESTIMATED_HEIGHT = 300;
     const NONUM = params.has('nonum');
+    // ?wheelload=1: today's claude.ai. Turns are numbered within what is
+    // loaded (renumbered on every load), the "Load earlier messages" button
+    // only scrolls to the first loaded turn, and earlier messages are
+    // fetched only on a wheel scroll up at the top of the chat.
+    const WHEELLOAD = params.has('wheelload');
+    const WHEEL_BATCH = 2; // turns per load
     const turnLabel = (n, m) => (NONUM ? 'Message' : `Message ${n} of ${m}`);
     const LOREM = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ';
 
@@ -179,7 +185,7 @@
     }
 
     const CHATS = {
-      'aaaaaaaa-0000-4000-8000-000000000001': { questions: makeQuestions('Alpha', 9), shownTurns: 12 },
+      'aaaaaaaa-0000-4000-8000-000000000001': { questions: makeQuestions('Alpha', 9), shownTurns: WHEELLOAD ? 4 : 12 },
       'bbbbbbbb-0000-4000-8000-000000000002': { questions: makeQuestions('Beta', 12), shownTurns: 8 },
     };
 
@@ -359,8 +365,70 @@
     function loadButton() {
       const btn = document.createElement('button');
       btn.textContent = 'Load earlier messages';
-      btn.onclick = loadEarlier;
+      // claude.ai: a screen-reader button that only scrolls to the first
+      // loaded turn; the fetch happens on a wheel scroll up at the top.
+      btn.onclick = WHEELLOAD ? () => { document.getElementById('scroller').scrollTop = 0; } : loadEarlier;
       return btn;
+    }
+
+    // Page numbering of a turn: its place in the whole conversation, or
+    // (WHEELLOAD) among the loaded turns only.
+    function pageNumbers(chat, absoluteIndex) {
+      const turns = turnsOf(chat);
+      const start = turns.length - chat.shownTurns;
+      return WHEELLOAD ? [absoluteIndex - start + 1, chat.shownTurns] : [absoluteIndex + 1, turns.length];
+    }
+
+    // After a load (WHEELLOAD) every turn gets its new number, as claude.ai
+    // renumbers the whole loaded set.
+    function renumber(chat) {
+      if (!feed) return;
+      const turns = turnsOf(chat);
+      for (const el of feed.children) {
+        if (!el._turn) continue;
+        const [n, m] = pageNumbers(chat, turns.indexOf(el._turn.t));
+        el._turn.n = n;
+        el._turn.m = m;
+        const target = el.matches('[role="article"], article') ? el : el.querySelector('[role="article"], article');
+        if (!target) continue;
+        target.setAttribute('aria-label', turnLabel(n, m));
+        if (target.hasAttribute('aria-posinset')) {
+          target.setAttribute('aria-posinset', String(n));
+          target.setAttribute('aria-setsize', String(m));
+        }
+      }
+    }
+
+    // WHEELLOAD: a wheel scroll up at the top fetches earlier messages,
+    // keeping the view where it was (claude.ai anchors the scroll).
+    function wheelLoad(e) {
+      if (!WHEELLOAD || e.deltaY >= 0 || loading) return;
+      const scroller = document.getElementById('scroller');
+      if (scroller.scrollTop > 1) return;
+      const chat = currentChat();
+      const turns = turnsOf(chat);
+      if (chat.shownTurns >= turns.length) return;
+      loading = true;
+      window.wheelLoads = (window.wheelLoads || 0) + 1;
+      setTimeout(() => {
+        loading = false;
+        const anchor = feed.querySelector('[role="article"], article, .placeholder');
+        const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+        const oldStart = turns.length - chat.shownTurns;
+        chat.shownTurns = Math.min(turns.length, chat.shownTurns + WHEEL_BATCH);
+        const start = turns.length - chat.shownTurns;
+        const nodes = turns.slice(start, oldStart).map((t, i) => {
+          const [n, m] = pageNumbers(chat, start + i);
+          return VIRTUAL && ESTIMATE ? placeholder({ t, n, m }) : turnNode(t, n, m);
+        });
+        const btn = feed.querySelector(':scope > button');
+        if (btn) btn.after(...nodes);
+        else feed.prepend(...nodes);
+        if (start === 0 && btn) btn.remove();
+        renumber(chat);
+        if (anchor) scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+        virtualize();
+      }, 300);
     }
 
     // Full render, only on navigation (a new conversation).
@@ -375,7 +443,8 @@
       const turns = turnsOf(chat);
       const start = turns.length - chat.shownTurns;
       const nodes = turns.slice(start).map((t, i) => {
-        const turn = { t, n: start + i + 1, m: turns.length };
+        const [n, m] = pageNumbers(chat, start + i);
+        const turn = { t, n, m };
         // Estimated heights: only the last few turns start rendered.
         return VIRTUAL && ESTIMATE && start + i < turns.length - 4 ? placeholder(turn) : turnNode(t, turn.n, turn.m);
       });
@@ -450,6 +519,7 @@
     document.getElementById('theme').onclick = () => document.documentElement.classList.toggle('dark');
     window.addEventListener('popstate', renderFeed);
     document.getElementById('scroller').addEventListener('scroll', scheduleVirtualize, { passive: true });
+    document.getElementById('scroller').addEventListener('wheel', wheelLoad, { passive: true });
     renderFeed();
     if (DEMO) {
       // Put the 7th question at the top, so a question mid-list is highlighted.

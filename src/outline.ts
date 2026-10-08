@@ -1,6 +1,6 @@
 // Outline core: extraction, the question ledger, observers, scrolling,
 // active tracking, load-all. Never writes to Claude's DOM; the highlight on
-// the question you jump to is a Web Animation that leaves nothing behind.
+// the question you jump to is drawn by the panel (see highlight.ts).
 //
 // claude.ai virtualizes the message list: only the turns near the viewport
 // are in the DOM, and they are unmounted again as you scroll. So the outline
@@ -10,7 +10,7 @@
 // dropped because their message is not rendered right now.
 import * as S from './selectors';
 import * as Sources from './sources';
-import { LOCATION_EVENT } from './events';
+import { HOST_ID, LOCATION_EVENT } from './events';
 import { watchConversations } from './intercept';
 import type { ApiQuestion, Entry, LoadReason, LoadState, Query, RenderedItem, Status, Strategy, View } from './types';
 import { LOG, safe, warnOnce } from './util';
@@ -22,10 +22,22 @@ const REBUILD_DEBOUNCE_MS = 150;
 // few ms), so a question you just sent would not appear until the answer
 // finished. Force a rebuild at least this often.
 const REBUILD_MAX_WAIT_MS = 1000;
-const FLASH_MS = 900;
 const LOAD_MAX_CLICKS = 50;
 const LOAD_MAX_MS = 30000;
 const LOAD_STEP_TIMEOUT_MS = 8000;
+// How long the button's click gets to add messages before we conclude it
+// did not load any (on current claude.ai it only scrolls to the first one).
+const LOAD_CLICK_TIMEOUT_MS = 2500;
+// How long to wait for the user to scroll up (which is what makes
+// claude.ai fetch earlier messages) before giving up on the jump.
+const USER_LOAD_WAIT_MS = 60000;
+// Attempts to get the scroller to its very top before concluding that the
+// page holds it there (claude.ai re-adjusts the scroll while it measures
+// turns, which can undo a scroll to 0 several times in a row).
+const TOP_ATTEMPTS = 12;
+// While waiting for the user's scroll, the page is nudged back to the top
+// this often: claude.ai fetches earlier messages only when at the top.
+const TOP_NUDGE_MS = 700;
 // Scanning: scroll through the whole chat so the virtualizer renders (and
 // the ledger records) every question.
 const SCAN_MAX_MS = 60000;
@@ -33,13 +45,24 @@ const SCAN_SETTLE_MS = 250;
 const SCAN_MAX_ROUNDS = 3;
 // Jumping to a question that is not in the DOM: scroll to where it is
 // expected, let claude.ai render it, then correct.
-const SEEK_MAX_STEPS = 40;
+// Steps a jump may take within one loaded batch of messages. Each step
+// waits for the page to settle, so this is a last-resort guard against a
+// page that never changes, not a budget a long chat can run out of.
+const SEEK_MAX_STEPS = 2000;
+// Batches of earlier messages a single jump may load (32 messages each).
+const SEEK_MAX_LOADS = 2000;
 const SEEK_SETTLE_MS = 300;
 // How long a smooth scroll to the clicked question may take before
 // scroll tracking takes over again.
 const SCROLL_END_WAIT_MS = 1500;
+// Corrections after a jump while the target still moves, how far off it
+// may be, and how long to wait for the page to react to each.
+const SETTLE_PASSES = 16;
+const SETTLE_SLACK_PX = 4;
+const SETTLE_WAIT_MS = 150;
 // Input that means the user is scrolling the chat themselves.
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const;
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 // Offsets drift a little as the virtualizer re-measures turns.
 const OFFSET_SLACK = 4;
 // Questions are matched by their first KEY_LEN letters and digits.
@@ -283,6 +306,12 @@ export interface Ledger {
   /** A completed scan: the fresh list replaces everything. */
   adopt(other: Ledger): void;
   isAuthoritative(): boolean;
+  /**
+   * The page's position ("Message N") of the question at this position in
+   * the conversation, or null while that is not known. They differ while
+   * earlier messages are not loaded: the page numbers only what it loaded.
+   */
+  pagePosition(pos: number): number | null;
   takeRefreshRequest(): boolean;
   /** Bumps whenever the list of questions changes. */
   readonly version: number;
@@ -297,6 +326,8 @@ export function createLedger(): Ledger {
   let wantsRefresh = false;
   let mismatch = false;
   let version = 0;
+  // conversation position - page position, for the turns rendered now.
+  let posShift: number | null = null;
 
   function changed() {
     version++;
@@ -340,6 +371,8 @@ export function createLedger(): Ledger {
     for (const e of entries) if (e.node && !present.has(e.node)) e.node = null;
     inferShift(seen);
     if (!authoritative) return absorbGrowing(seen, true);
+    calibrate(seen);
+    for (const s of seen) s.pos = s.pos != null && posShift != null ? s.pos + posShift : null;
     if (absorbContiguous(seen, feed)) return;
     // Rendered text that doesn't match the API's: attach what matches,
     // add nothing (the API list is the complete one).
@@ -353,13 +386,44 @@ export function createLedger(): Ledger {
     absorbGrowing(seen, false);
   }
 
-  // Authoritative mode, exact: the page's "Message N of M" position equals
-  // the API position. Accepted when most texts agree too (so a different
-  // numbering can never attach the wrong messages); a text that differs
-  // (a code block, markdown) is then still attached by its position.
+  // The page numbers only the messages it has loaded (the last ones), so
+  // its "Message N" is the conversation position minus the number of
+  // messages not loaded. That difference is the same for every rendered
+  // turn: find it from the rendered questions whose text matches a
+  // question of the list, taking the difference most of them agree on
+  // (texts can repeat). Kept as it was when no text matches this time.
+  function calibrate(seen: Sighting[]) {
+    const votes = new Map<number, number>();
+    for (const s of seen) {
+      if (s.pos == null || !s.key) continue;
+      for (const e of entries) {
+        if (e.pos != null && e.key === s.key) votes.set(e.pos - s.pos, (votes.get(e.pos - s.pos) ?? 0) + 1);
+      }
+    }
+    let best: number | null = null;
+    let most = 0;
+    for (const [shift, count] of votes) {
+      if (count > most) {
+        best = shift;
+        most = count;
+      }
+    }
+    if (best !== null) posShift = best;
+  }
+
+  // Authoritative mode, exact: the turn's position (translated to the
+  // conversation, see calibrate) equals the API position. The page's
+  // numbering is not guaranteed to follow the API's, so the texts decide
+  // whether it does here: a rendered text that is the text of ANOTHER
+  // question of the list means the numbers are off, and nothing is
+  // attached by them. A text that merely differs from the one at its
+  // position (a code block, markdown, an attachment: rendered differently
+  // from how it is stored) is fine, as long as some text agrees.
   function absorbByPosition(seen: Sighting[]): boolean {
     if (!seen.every((s) => s.pos) || !entries.length || !entries.every((e) => e.pos)) return false;
     const byPos = new Map(entries.map((e, j) => [e.pos!, j]));
+    const byKey = new Map<string, number>();
+    entries.forEach((e, j) => e.key && byKey.set(e.key, j));
     const maxPos = entries[entries.length - 1].pos!;
     let compared = 0;
     let agreed = 0;
@@ -372,9 +436,10 @@ export function createLedger(): Ledger {
       if (s.key && entries[j].key) {
         compared++;
         if (s.key === entries[j].key) agreed++;
+        else if (byKey.has(s.key)) return false; // its text is another question's: numbering off
       }
     }
-    if (compared && agreed * 2 < compared) return false;
+    if (compared && !agreed) return false;
     for (const s of seen) {
       const j = byPos.get(s.pos!);
       if (j !== undefined) {
@@ -535,6 +600,11 @@ export function createLedger(): Ledger {
       changed();
     },
     isAuthoritative: () => authoritative,
+    pagePosition(pos) {
+      // Page-only lists keep the page's own positions.
+      if (!authoritative) return pos;
+      return posShift === null ? null : pos - posShift;
+    },
     takeRefreshRequest() {
       const r = wantsRefresh;
       wantsRefresh = false;
@@ -628,37 +698,46 @@ function scrollContainerTo(container: Element, top: number) {
   else container.scrollTo({ top, behavior: 'instant' });
 }
 
-function scrollToElement(container: Element, target: HTMLElement) {
+/** Scrolls the target to the top of the chat; false if it was there already. */
+// Always instant: the highlight shows where you landed, and a smooth
+// scroll only makes you wait while claude.ai renders everything passed.
+function scrollToElement(container: Element, target: HTMLElement): boolean {
   const delta = target.getBoundingClientRect().top - containerTop(container) - S.layout.scrollOffset;
-  scrollContainerBy(container, delta, 'smooth');
-  flash(target);
+  if (Math.abs(delta) < 1) return false;
+  scrollContainerBy(container, delta, 'instant');
+  return true;
 }
 
-// Marks the question you jumped to: a highlight sweeps across the message
-// bubble from left to right. A Web Animation leaves nothing behind in
-// claude.ai's DOM once it finishes (no inline styles to restore).
-const SWEEP = 'linear-gradient(90deg, transparent 35%, rgba(217, 119, 87, 0.45) 50%, transparent 65%)';
-function flash(turn: HTMLElement) {
-  const target = q.one(turn, S.userMessageBody) || turn;
-  safe('flash', () => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      target.animate([{ opacity: 0.55 }, { opacity: 1 }], { duration: FLASH_MS / 2, easing: 'ease-out' });
-      return;
-    }
-    const frame = { backgroundImage: SWEEP, backgroundSize: '250% 100%', backgroundRepeat: 'no-repeat' };
-    target.animate(
-      [
-        { ...frame, backgroundPosition: '100% 0' },
-        { ...frame, backgroundPosition: '0% 0' },
-      ],
-      { duration: FLASH_MS, easing: 'ease-in-out' }
-    );
-  });
+// "transparent", rgba(…, 0) or color(srgb … / 0): claude.ai uses the latter
+// notation for its translucent bubble backgrounds.
+const isTransparent = (color: string) =>
+  color === 'transparent' || /^rgba\(.*,\s*0\)$/.test(color) || /\/\s*0\)$/.test(color);
+
+// The visible box of a question: its bubble, i.e. the closest element
+// around the text that paints its own background. Falls back to the text
+// block, then to the whole turn.
+function messageBox(turn: HTMLElement): HTMLElement {
+  const body = q.one(turn, S.userMessageBody);
+  const stop = turn.parentElement;
+  for (let el: HTMLElement | null = body; el && el !== stop; el = el.parentElement) {
+    if (!isTransparent(getComputedStyle(el).backgroundColor)) return el;
+  }
+  return body || turn;
 }
 
 // ---------------------------------------------------------------------------
 // Active-item tracking
 // ---------------------------------------------------------------------------
+
+// Whether a rendered question found at the entry's position is clearly NOT
+// the entry's: its text is that of another question in the list. A text
+// that only differs from the entry's (rendered differently from how it is
+// stored: a code block, markdown) is no conflict.
+function textConflicts(entry: Entry, item: RenderedItem, list: readonly Entry[]): boolean {
+  const key = keyOf(item.full);
+  if (!key || !entry.key || key === entry.key) return false;
+  return list.some((e) => e !== entry && e.key === key);
+}
 
 function mounted(entry: Entry | undefined): entry is Entry & { node: HTMLElement } {
   return !!(entry && entry.node && entry.node.isConnected);
@@ -690,9 +769,9 @@ function createActiveTracker(
   let current: number | undefined;
   let pinned: number | null = null;
   let frame = 0;
+  let fallback: ReturnType<typeof setTimeout> | undefined;
 
   function compute() {
-    frame = 0;
     if (pinned !== null) return emit(pinned);
     if (!targets.length) return emit(-1);
     const line = containerTop(container) + S.layout.scrollOffset + 2;
@@ -712,12 +791,16 @@ function createActiveTracker(
     if (lastAbove !== -1) active = lastAbove;
     else if (firstMounted !== -1) active = Math.max(0, firstMounted - 1);
     else {
+      // No question rendered: go by where they were last seen. With nothing
+      // seen yet (a chat that is still loading) nothing is marked, rather
+      // than a guess that jumps once the chat appears.
       const feed = getFeed();
       const feedTop = feed ? feed.getBoundingClientRect().top : 0;
-      active = 0;
+      active = -1;
       targets.forEach((t, i) => {
         if (t.offset != null && feedTop + t.offset <= line) active = i;
       });
+      if (active === -1 && targets.some((t) => t.offset != null)) active = 0;
     }
     // At the very bottom, a question followed by a short answer can never
     // reach the line, so clicking it would never mark it active. There,
@@ -740,8 +823,17 @@ function createActiveTracker(
     onActive(index);
   }
 
+  // On the next frame; on a timer in a background tab (no frames there).
   function schedule() {
-    if (!frame) frame = requestAnimationFrame(() => safe('active tracking', compute));
+    if (frame) return;
+    frame = requestAnimationFrame(run);
+    if (document.hidden) fallback = setTimeout(run, FRAME_FALLBACK_MS);
+  }
+  function run() {
+    cancelAnimationFrame(frame);
+    clearTimeout(fallback);
+    frame = 0;
+    safe('active tracking', compute);
   }
 
   const scrollTarget: EventTarget = isDoc ? window : container;
@@ -766,6 +858,7 @@ function createActiveTracker(
     },
     destroy() {
       if (frame) cancelAnimationFrame(frame);
+      clearTimeout(fallback);
       scrollTarget.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     },
@@ -783,12 +876,46 @@ function countTurns(feed: HTMLElement | null): number {
   return turns > 0 ? turns : feed.getElementsByTagName('*').length;
 }
 
+/** The ones among `turns` that are inside the scroller's visible area. */
+function onScreen<T extends { turn: HTMLElement }>(turns: T[], container: Element): T[] {
+  const top = isDocScroller(container) ? 0 : container.getBoundingClientRect().top;
+  const bottom = top + containerHeight(container);
+  return turns.filter(({ turn }) => {
+    const r = turn.getBoundingClientRect();
+    return r.bottom > top && r.top < bottom;
+  });
+}
+
+/** The rendered turns that carry a position, in conversation order. */
+function renderedPositions(feed: HTMLElement): { turn: HTMLElement; pos: number }[] {
+  return q
+    .all(feed, S.turn)
+    .map((turn) => ({ turn, pos: safe('position', () => S.turnPosition(turn), null) }))
+    .filter((r): r is { turn: HTMLElement; pos: number } => r.pos != null)
+    .toSorted((a, b) => a.pos - b.pos);
+}
+
 function feedHeight(feed: HTMLElement | null): number {
   return feed ? feed.getBoundingClientRect().height : 0;
 }
 
+// The next animation frame, or FRAME_FALLBACK_MS if none comes: frames
+// do not run in a background tab, and a jump must not hang until the tab
+// is looked at again.
+const FRAME_FALLBACK_MS = 50;
 function nextFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      resolve();
+    };
+    const frame = requestAnimationFrame(finish);
+    const timer = setTimeout(finish, FRAME_FALLBACK_MS);
+  });
 }
 
 // Resolves true as soon as predicate() holds (checked on DOM mutations,
@@ -826,7 +953,7 @@ function settle(feed: HTMLElement | null, timeoutMs: number, signal: AbortSignal
       mo.disconnect();
       clearTimeout(timer);
       signal.removeEventListener('abort', finish);
-      requestAnimationFrame(() => resolve());
+      nextFrame().then(resolve);
     };
     const mo = new MutationObserver(finish);
     if (feed && feed.isConnected) mo.observe(feed, { childList: true, subtree: true });
@@ -852,7 +979,8 @@ function scrollEnded(container: Element, timeoutMs: number): Promise<void> {
 
 interface Anchor {
   el: HTMLElement | undefined;
-  pos: number | null;
+  /** Distance from the last loaded turn: survives earlier messages being loaded. */
+  fromEnd: number | null;
   top: number;
   feed: HTMLElement;
   height: number;
@@ -867,17 +995,17 @@ function captureAnchor(feed: HTMLElement | null): Anchor | null {
   const top = containerTop(container);
   const turns = q.all(feed, S.turn);
   const el = turns.find((t) => t.getBoundingClientRect().bottom > top) || turns[0];
-  const pos = el ? safe('position', () => S.turnPosition(el), null) : null;
-  return { el, pos, top: el ? el.getBoundingClientRect().top : 0, feed, height: feedHeight(feed), container };
+  const fromEnd = el ? safe('position', () => S.turnFromEnd(el), null) : null;
+  return { el, fromEnd, top: el ? el.getBoundingClientRect().top : 0, feed, height: feedHeight(feed), container };
 }
 
 // The anchor turn itself, or (if claude.ai re-created it) the turn now
 // rendered at the same position in the conversation.
 function anchorElement(anchor: Anchor): HTMLElement | null {
   if (anchor.el && anchor.el.isConnected) return anchor.el;
-  if (!anchor.pos) return null;
+  if (anchor.fromEnd == null) return null;
   const feed = anchor.feed.isConnected ? anchor.feed : findFeed();
-  return q.all(feed, S.turn).find((t) => safe('position', () => S.turnPosition(t), null) === anchor.pos) || null;
+  return q.all(feed, S.turn).find((t) => safe('position', () => S.turnFromEnd(t), null) === anchor.fromEnd) || null;
 }
 
 // Returns how far the anchor had moved (px), i.e. the height of what was
@@ -992,14 +1120,15 @@ async function returnToAnchor(
       scrollContainerBy(container, delta, 'instant');
       continue;
     }
-    const positions = q
+    const fromEnds = q
       .all(feed, S.turn)
-      .map((t) => safe('position', () => S.turnPosition(t), null))
-      .filter((p): p is number => !!p);
-    if (!anchor.pos || !positions.length) {
+      .map((t) => safe('position', () => S.turnFromEnd(t), null))
+      .filter((p): p is number => p != null);
+    if (anchor.fromEnd == null || !fromEnds.length) {
       return moved + restoreAnchor(anchor); // best effort: by the change in feed height
     }
-    const up = anchor.pos < Math.min(...positions);
+    // Further from the end than everything rendered: it is above.
+    const up = anchor.fromEnd > Math.max(...fromEnds);
     scrollContainerBy(container, (up ? -0.8 : 0.8) * containerHeight(container), 'instant');
   }
   return moved;
@@ -1059,6 +1188,17 @@ async function scanAll({
 // ---------------------------------------------------------------------------
 
 // Shared with debugReport().
+// Diagnostics for jumps; off unless `localStorage['claude-outline-debug']` is set.
+function seekLog<T>(msg: string, data: T): T {
+  try {
+    if (localStorage.getItem('claude-outline-debug'))
+      console.debug(LOG, 'seek:', msg, data == null ? '' : JSON.stringify(data));
+  } catch {
+    /* storage blocked */
+  }
+  return data;
+}
+
 const debugState = {
   convId: null as string | null,
   source: 'none' as 'none' | 'page' | 'cache' | 'api' | 'claude.ai response',
@@ -1077,8 +1217,18 @@ export interface Session {
 
 type Outcome = { reason: LoadReason; clicks: number };
 
-export function createSession(view: View, convId: string | null): Session {
+/** The turns rendered right now (on a route change: the previous chat's). */
+export function renderedTurns(): Set<Element> {
+  return new Set(q.all(findFeed(), S.turn));
+}
+
+// `leftover`: turns of the previous conversation still in the page when
+// this one starts (claude.ai changes the URL before it re-renders). They
+// are ignored until they are gone, so the old chat's questions never show
+// up in this one, not even for a moment.
+export function createSession(view: View, convId: string | null, leftover?: ReadonlySet<Element>): Session {
   let stopped = false;
+  let stale: ReadonlySet<Element> | null = leftover && leftover.size ? leftover : null;
   let feed: HTMLElement | null = null;
   let feedObserver: MutationObserver | null = null;
   let bodyObserver: MutationObserver | null = null;
@@ -1089,6 +1239,7 @@ export function createSession(view: View, convId: string | null): Session {
   let acquireFrame = 0;
   let loadController: AbortController | null = null;
   let seekController: AbortController | null = null;
+  let seekingUp = false; // the running jump goes up: scrolling up helps it, never cancels it
   let complete = false; // the list is known to be complete
   let apiState: 'idle' | 'loading' | 'ok' | 'failed' = 'idle';
   let apiLast = 0;
@@ -1129,11 +1280,14 @@ export function createSession(view: View, convId: string | null): Session {
     // feed is healthy, and re-queries for it once it is gone.
     bodyObserver = new MutationObserver(() => {
       if (feed && feed.isConnected) return;
+      seekLog('body mutation without feed', { feed: !!feed });
+      // A timer, not an animation frame: frames do not run in a background
+      // tab, and the chat may well finish loading while the tab is one.
       if (!acquireFrame) {
-        acquireFrame = requestAnimationFrame(() => {
+        acquireFrame = window.setTimeout(() => {
           acquireFrame = 0;
           acquireFeed();
-        });
+        }, 0);
       }
     });
     bodyObserver.observe(document.body, { childList: true, subtree: true });
@@ -1148,6 +1302,7 @@ export function createSession(view: View, convId: string | null): Session {
   function acquireFeed() {
     if (stopped) return;
     const next = findFeed();
+    seekLog('acquireFeed', { found: !!next, same: next === feed });
     if (next !== feed) {
       if (feedObserver) feedObserver.disconnect();
       feedObserver = null;
@@ -1174,17 +1329,27 @@ export function createSession(view: View, convId: string | null): Session {
   }
 
   function rebuild(): void {
+    seekLog('rebuild', { stopped, feed: !!feed, connected: !!feed?.isConnected });
     if (stopped) return;
     if (feed && !feed.isConnected) return acquireFeed();
-    const result = safe('rebuild', () => collect(feed), {
+    let result = safe('rebuild', () => collect(feed), {
       status: 'selectors-broken',
       strategy: null,
       items: [],
     } as Collected);
+    if (stale) {
+      const old = stale;
+      if (![...old].some((t) => t.isConnected)) stale = null;
+      else {
+        const fresh = result.items.filter((item) => !old.has(item.target));
+        // Only the old chat on screen: this one is still loading.
+        result = { ...result, items: fresh, status: fresh.length ? result.status : 'no-feed' };
+      }
+    }
     if (feed && result.items.length) {
       const f = feed;
       safe('ledger', () => ledger.absorb(result.items, f));
-      safe('coverage', () => coverage.record(f));
+      if (!stale) safe('coverage', () => coverage.record(f));
       if (scanLedger) {
         const scan = scanLedger;
         safe('scan ledger', () => scan.absorb(result.items, f));
@@ -1201,6 +1366,9 @@ export function createSession(view: View, convId: string | null): Session {
       items,
       canLoadEarlier,
       incomplete: !complete && (canLoadEarlier || coverage.incomplete()),
+      // Final: from the API (the cache's "complete" is last visit's guess),
+      // or when the API failed and the page-only list is all there is.
+      settled: ledger.isAuthoritative() || apiState === 'failed',
     });
     updateTracker();
     if (ledger.takeRefreshRequest()) scheduleApiRefresh();
@@ -1259,6 +1427,7 @@ export function createSession(view: View, convId: string | null): Session {
     }
     apiState = 'failed';
     debugState.api = texts ? 'empty answer' : 'unavailable (see warning above)';
+    rebuild(); // the page-only list is final now (see RenderResult.settled)
     return false;
   }
 
@@ -1288,12 +1457,37 @@ export function createSession(view: View, convId: string | null): Session {
 
   // ----- jumping --------------------------------------------------------------
 
+  function isScrollUp(e: Event): boolean {
+    if (e instanceof WheelEvent) return e.deltaY <= 0;
+    if (e instanceof KeyboardEvent) return e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home';
+    return e.type === 'touchmove';
+  }
+
   function cancelSeek() {
     if (seekController) seekController.abort();
     seekController = null;
+    seekingUp = false;
   }
 
-  function onUserScroll() {
+  function onUserScroll(e: Event) {
+    const t = e.target;
+    // The scroll up we asked for (to make claude.ai load earlier messages)
+    // must not end the very jump that asked for it.
+    // A jump up through a long chat needs the user's scroll-ups (they make
+    // claude.ai load earlier messages), so those never cancel it, whenever
+    // they come. Any other scroll by the user ends the jump.
+    if (seekingUp && isScrollUp(e)) return;
+    // Anything inside the panel (seen from here as its host element) is the
+    // panel's own: scrolling its list, often with trackpad momentum still
+    // running when you click a question, must not cancel that very jump.
+    if (t instanceof Element && t.id === HOST_ID) return;
+    if (e instanceof KeyboardEvent) {
+      // Only scrolling keys, and not while typing.
+      if (!SCROLL_KEYS.has(e.key)) return;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+      if (t instanceof HTMLElement && t.isContentEditable) return;
+    }
+    seekLog('user scroll cancels', { type: e.type });
     cancelSeek();
     tracker?.unpin();
   }
@@ -1311,35 +1505,365 @@ export function createSession(view: View, convId: string | null): Session {
     tracker?.pin(index);
     const controller = new AbortController();
     seekController = controller;
-    if (await seek(entry, theFeed, container, controller.signal)) await scrollEnded(container, SCROLL_END_WAIT_MS);
+    // Which way the jump goes: up unless the target is at or below a
+    // rendered question. Going up may need earlier messages loaded on the
+    // way, which only the user's scroll-ups make claude.ai do.
+    const firstMounted = items.findIndex((e) => mounted(e));
+    seekingUp = !mounted(entry) && (firstMounted === -1 || index < firstMounted);
+    seekLog('jump', { index, pos: entry.pos, label: entry.label.slice(0, 30), up: seekingUp });
+    const landing = await seek(entry, theFeed, container, controller.signal);
+    seekLog('landing', { found: !!landing, aborted: controller.signal.aborted });
+    if (landing) await settleOn(entry, container, landing.scrolled, controller.signal);
     // A newer click owns the pin now; a user scroll has released it already.
     if (seekController !== controller) return;
     seekController = null;
+    seekingUp = false; // the wheel may still be turning: no longer a cancel, but no longer ours either
+    if (landing) {
+      // The highlight asks for the message on every frame: claude.ai may
+      // re-create it while it is shown.
+      const box = () => {
+        const turn = turnOf(entry);
+        return turn ? safe('message box', () => messageBox(turn), turn) : null;
+      };
+      safe('highlight', () => view.highlight(box, isDocScroller(container) ? null : container));
+    } else if (!stopped) {
+      // The question is in the list (from the API) but claude.ai does not
+      // show it: the page loads a chat's history only so far back, and
+      // offers no way to load the rest. The panel shows its text instead.
+      safe('unreachable', () => view.unreachable(index));
+    }
     tracker?.unpin();
   }
 
-  // Brings the entry's turn on screen. Resolves true once a smooth scroll to
-  // it has started, false if it could not be found.
-  async function seek(entry: Entry, theFeed: HTMLElement, container: Element, signal: AbortSignal): Promise<boolean> {
-    const land = (el: HTMLElement) => safe('scroll', () => (scrollToElement(container, el), true), false);
-    if (mounted(entry)) return land(entry.node);
+  // The entry's rendered turn right now: the one the ledger attached, or
+  // the turn at its position in the conversation (claude.ai re-creates
+  // turns as it measures them, so the node found before scrolling may be
+  // gone by the time the scroll ends).
+  //
+  // The text decides: the page's numbering does not always follow the
+  // API's, so a turn found by position is taken only if its text agrees
+  // with the entry's (or one of the two has no text to compare).
+  function turnOf(entry: Entry): HTMLElement | null {
+    if (mounted(entry)) return entry.node;
+    if (!feed) return null;
+    const rendered = collect(feed).items;
+    if (entry.key) {
+      const byText = rendered.filter((r) => keyOf(r.full) === entry.key);
+      if (byText.length === 1) return byText[0].target;
+    }
+    const pos = entry.pos != null ? ledger.pagePosition(entry.pos) : null;
+    if (pos == null) return null;
+    const hit = rendered.find((r) => r.pos === pos);
+    if (hit) return textConflicts(entry, hit, items) ? null : hit.target;
+    const turn = q.all(feed, S.turn).find((t) => safe('position', () => S.turnPosition(t), null) === pos);
+    return turn && !entry.key ? turn : null;
+  }
 
-    // The question is not rendered. Jump to where it is expected, let
+  // After the smooth scroll, make sure the target ends up where it should.
+  // On a long jump claude.ai measures the turns passed on the way and moves
+  // the scroll position itself to keep the view steady (going up, every
+  // time). Such a move cancels a smooth scroll, so corrections are instant:
+  // nothing can interrupt them. Done once the target has stayed in place
+  // for two frames.
+  async function settleOn(entry: Entry, container: Element, scrolled: boolean, signal: AbortSignal) {
+    if (scrolled) await scrollEnded(container, SCROLL_END_WAIT_MS);
+    const scrollEl = scrollElementOf(container);
+    let steady = 0;
+    for (let pass = 0; pass < SETTLE_PASSES; pass++) {
+      if (signal.aborted || stopped) return;
+      await nextFrame();
+      if (signal.aborted || stopped) return;
+      rebuild();
+      const turn = turnOf(entry);
+      if (!turn) return;
+      const delta = turn.getBoundingClientRect().top - containerTop(container) - S.layout.scrollOffset;
+      // Already as far as the page goes (a question near the very end or start).
+      const atEnd = delta > 0 && scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2;
+      const atStart = delta < 0 && scrollEl.scrollTop <= 0;
+      if (Math.abs(delta) <= SETTLE_SLACK_PX || atEnd || atStart) {
+        if (++steady >= 2) return;
+        continue;
+      }
+      steady = 0;
+      scrollContainerBy(container, delta, 'instant');
+      // Let the virtualizer react to the move before measuring again.
+      await settle(feed, SETTLE_WAIT_MS, signal);
+    }
+  }
+
+  // Identifies the first loaded message: the text of the first rendered
+  // turn at page position 1 (null while it is not rendered). Changes when
+  // earlier messages are loaded, even if the count of loaded ones does not.
+  function firstLoadedKey(theFeed: HTMLElement): string | null {
+    const top = renderedPositions(theFeed)[0];
+    if (!top || top.pos !== 1) return null;
+    return keyOf(plainText(blockText(top.turn))) || `${top.turn.getAttribute('aria-label')}`;
+  }
+
+  // Scrolls the chat to its top, trying repeatedly and in different ways:
+  // claude.ai moves the scroll itself while it measures turns passed on
+  // the way, so one scroll to 0 may not stick. True once at the top; false
+  // if the page keeps holding the scroller below it.
+  async function reachTop(container: Element, theFeed: HTMLElement, signal: AbortSignal): Promise<boolean> {
+    const scrollEl = scrollElementOf(container);
+    for (let attempt = 0; attempt < TOP_ATTEMPTS; attempt++) {
+      if (signal.aborted || stopped) return false;
+      if (scrollEl.scrollTop <= 1) return true;
+      const before = scrollEl.scrollTop;
+      if (attempt % 3 === 0) scrollContainerTo(container, 0);
+      else if (attempt % 3 === 1) scrollContainerBy(container, -2 * containerHeight(container), 'instant');
+      else {
+        const first = q.all(theFeed, S.turn)[0];
+        if (first) safe('scrollIntoView', () => first.scrollIntoView({ block: 'start' }));
+        else scrollContainerTo(container, 0);
+      }
+      await settle(theFeed, SEEK_SETTLE_MS, signal);
+      rebuild();
+      seekLog('reach top', { attempt, before: Math.round(before), after: Math.round(scrollEl.scrollTop) });
+    }
+    return scrollEl.scrollTop <= 1;
+  }
+
+  // How many messages the page has loaded (aria-setsize), or null.
+  function loadedCount(theFeed: HTMLElement): number | null {
+    const first = renderedPositions(theFeed)[0];
+    return first ? safe('set size', () => S.turnSetSize(first.turn), null) : null;
+  }
+
+  // At the top of what is loaded, with the question further up. claude.ai
+  // fetches earlier messages only on a real scroll up by the user (a wheel
+  // or trackpad move at the top): programmatic scrolling, synthetic events
+  // and its hidden "Load earlier messages" button (which only scrolls to
+  // the first loaded message) do not make it fetch. So: try the button
+  // (older builds loaded on it), then ask the user to scroll up and wait
+  // until more messages are loaded. True once there are more.
+  async function loadEarlierOrAskUser(theFeed: HTMLElement, container: Element, signal: AbortSignal): Promise<boolean> {
+    // Earlier messages arrived when the page says it has more loaded
+    // (aria-setsize), when turns were added or the feed grew taller, or
+    // when the first loaded message is another one: claude.ai keeps a
+    // window of messages and may drop later ones as earlier ones load, so
+    // the count can stay the same while the window moves up.
+    const before = loadedCount(theFeed);
+    const turns = countTurns(theFeed);
+    const height = feedHeight(theFeed);
+    const first = firstLoadedKey(theFeed);
+    const grown = () =>
+      (loadedCount(theFeed) ?? before) !== before ||
+      countTurns(theFeed) > turns ||
+      feedHeight(theFeed) > height + 1 ||
+      (first !== null && firstLoadedKey(theFeed) !== first);
+    const button = findLoadEarlierButton();
+    seekLog('load earlier', { before, button: !!button });
+    let nudge: ReturnType<typeof setInterval> | undefined;
+    try {
+      if (button) {
+        button.click();
+        await waitForDom(grown, LOAD_CLICK_TIMEOUT_MS, signal);
+        if (signal.aborted || stopped) return false;
+        if (grown()) {
+          await nextFrame();
+          rebuild();
+          return true;
+        }
+      }
+      // Keep the page at the top while waiting: claude.ai fetches only
+      // there, and it may move the scroll by itself meanwhile.
+      const scrollEl = scrollElementOf(container);
+      nudge = setInterval(() => {
+        if (scrollEl.scrollTop > 1) scrollContainerTo(container, 0);
+      }, TOP_NUDGE_MS);
+      const grew = await waitForDom(grown, USER_LOAD_WAIT_MS, signal);
+      seekLog('waited for user scroll', {
+        grew,
+        aborted: signal.aborted,
+        now: loadedCount(theFeed),
+        turns: countTurns(theFeed),
+        first: firstLoadedKey(theFeed)?.slice(0, 20),
+      });
+      if (!grew || signal.aborted || stopped) return false;
+      // Let claude.ai lay the new messages out before measuring them.
+      await settle(theFeed, SEEK_SETTLE_MS, signal);
+      rebuild();
+      return true;
+    } finally {
+      clearInterval(nudge);
+    }
+  }
+
+  // Finds the turn of the question at conversation position `target` with
+  // a binary search over the scroll range. Each rendered turn carries its
+  // page position (aria-posinset; see Ledger.pagePosition for how that maps
+  // to the conversation), so the turns on screen tell whether the target is
+  // above or below: the range halves on every step, whatever the heights of
+  // the messages and however often claude.ai re-measures them. Scrolling up
+  // may make claude.ai load earlier messages by itself, which renumbers the
+  // page: the target's page position is recomputed on every step.
+  // The scroll position that puts the turn at page position `want` on the
+  // line, extrapolated from the turns on screen (their tops and positions).
+  function estimateScroll(
+    view: { turn: HTMLElement; pos: number }[],
+    want: number,
+    top: number,
+    container: Element
+  ): number {
+    const first = view[0];
+    const last = view[view.length - 1];
+    const firstTop = first.turn.getBoundingClientRect().top;
+    const span = last.pos - first.pos;
+    const perMessage =
+      span > 0 ? (last.turn.getBoundingClientRect().top - firstTop) / span : containerHeight(container) / 2;
+    const targetTop = firstTop + (want - first.pos) * perMessage;
+    return Math.max(0, top + targetTop - containerTop(container) - S.layout.scrollOffset);
+  }
+
+  async function findByPosition(
+    entry: Entry,
+    theFeed: HTMLElement,
+    container: Element,
+    signal: AbortSignal
+  ): Promise<HTMLElement | null> {
+    const target = entry.pos!;
+    const offset = entry.offset;
+    const scrollEl = scrollElementOf(container);
+    const maxScroll = () => Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    let lo = 0;
+    let hi = maxScroll();
+    let loaded: number | null = null; // how many messages the page has loaded
+    let loads = 0; // batches of earlier messages loaded on the way
+    // First step: where it was last seen, if known.
+    let next: number | null =
+      offset == null
+        ? null
+        : scrollEl.scrollTop +
+          theFeed.getBoundingClientRect().top +
+          offset -
+          containerTop(container) -
+          S.layout.scrollOffset;
+    for (let step = 0; step < SEEK_MAX_STEPS; step++) {
+      if (signal.aborted || stopped) return null;
+      const f = feed && feed.isConnected ? feed : theFeed;
+      const rendered = renderedPositions(f);
+      // The page's number for it, recomputed every step: loading earlier
+      // messages renumbers the page.
+      const want = ledger.pagePosition(target);
+      seekLog('byPos step', {
+        step,
+        want,
+        loaded,
+        top: Math.round(scrollEl.scrollTop),
+        rendered: rendered.map((r) => r.pos).join(','),
+      });
+      if (want == null || !rendered.length) return seekLog('byPos: no want/rendered', null);
+      // Found by number: taken only if its text agrees with the question's
+      // (the page's numbering does not always follow the API's). If not,
+      // the numbering is off here: give up on it and let seek() go by text.
+      const found = turnOf(entry);
+      if (found) return found;
+      if (rendered.some((r) => r.pos === want)) return seekLog('byPos: number there but text differs', null);
+      const size = safe('set size', () => S.turnSetSize(rendered[0].turn), null);
+      if (size !== loaded) {
+        // More messages loaded (or the first step): the page is renumbered
+        // and its height changed, so the old bounds mean nothing. Restart
+        // on the whole range, first at the target's share of it.
+        loaded = size;
+        lo = 0;
+        hi = maxScroll();
+        if (next == null && size && want >= 1) next = ((want - 1) / size) * hi;
+      }
+      const top = scrollEl.scrollTop;
+      if (want < 1) {
+        // Not loaded yet: it is above everything on the page. At the top,
+        // claude.ai loads earlier messages (see loadEarlierOrAskUser).
+        // "At the top" also when a scroll to 0 did not move: claude.ai
+        // holds the scroller a little below 0 while its sizer settles.
+        // Get to the top first (it may take several tries); at the top,
+        // or if the page will not let us there, load earlier messages.
+        if (top > 1 && (await reachTop(container, f, signal))) {
+          next = null;
+          continue;
+        }
+        if (!(await loadEarlierOrAskUser(f, container, signal))) return seekLog('byPos: load failed/aborted', null);
+        // The step budget is per loaded batch: a far question needs
+        // many loads, each followed by a fresh search of the new range.
+        if (++loads > SEEK_MAX_LOADS) return null;
+        step = 0;
+        next = null;
+        continue;
+      }
+      // Which way to go is decided by the turns on screen only: claude.ai
+      // keeps a few far-away turns mounted too (the last one, for one), so
+      // the rendered positions are not one contiguous run.
+      const view = onScreen(rendered, container);
+      if (!view.length) return seekLog('byPos: nothing on screen', null);
+      const min = view[0].pos;
+      const max = view[view.length - 1].pos;
+      if (want < min) {
+        // Above everything on screen. Already at the top of the page, that
+        // means above everything loaded (a page that numbers the whole
+        // conversation says so only this way): load earlier messages.
+        if (top <= 1) {
+          if (!(await loadEarlierOrAskUser(f, container, signal))) return seekLog('byPos: load failed/aborted', null);
+          if (++loads > SEEK_MAX_LOADS) return null;
+          step = 0;
+          next = null;
+          continue;
+        }
+        hi = Math.min(hi, top);
+      } else if (want > max) {
+        if (top >= maxScroll() - 1) return seekLog('byPos: at bottom', null); // nothing further down
+        lo = Math.max(lo, top);
+      } else return seekLog('byPos: between turns on screen', null); // yet not rendered: no such turn
+      // Best guess: as far as the target is from the turns on screen, at
+      // the height per message those turns show. Usually lands on it or
+      // next to it, where halving the range would take several steps
+      // (each one a scroll claude.ai must render: a blank screen meanwhile).
+      if (next == null) next = estimateScroll(view, want, top, container);
+      hi = Math.min(hi, maxScroll());
+      // Re-measuring can leave the bounds crossed; start over on the whole range.
+      if (lo >= hi) {
+        lo = 0;
+        hi = maxScroll();
+      }
+      const to = next != null && next >= lo && next <= hi ? next : (lo + hi) / 2;
+      next = null;
+      scrollContainerTo(container, to);
+      await settle(f, SEEK_SETTLE_MS, signal);
+      rebuild();
+    }
+    return null;
+  }
+
+  // Brings the entry's turn on screen: the turn, and whether a smooth scroll
+  // to it has started; null if it could not be found.
+  async function seek(
+    entry: Entry,
+    theFeed: HTMLElement,
+    container: Element,
+    signal: AbortSignal
+  ): Promise<{ el: HTMLElement; scrolled: boolean } | null> {
+    const land = (el: HTMLElement) => safe('scroll', () => ({ el, scrolled: scrollToElement(container, el) }), null);
+    if (mounted(entry)) return land(entry.node);
+    if (entry.pos != null && ledger.pagePosition(entry.pos) != null && renderedPositions(theFeed).length) {
+      const el = await findByPosition(entry, theFeed, container, signal);
+      if (el) return land(el);
+    }
+
+    // Without positions on the page (older markup): jump to where the
+    // question is expected, let
     // claude.ai render that part, and repeat: the rendered questions tell
     // which way (and roughly how far) it still is.
     const scrollEl = scrollElementOf(container);
     const lineOffset = () => containerTop(container) + S.layout.scrollOffset;
     let usedOffset = false;
+    let loads = 0; // batches of earlier messages loaded on the way
     for (let step = 0; step < SEEK_MAX_STEPS; step++) {
-      if (signal.aborted || stopped) return false;
+      if (signal.aborted || stopped) return null;
       const list = ledger.list();
       const i = list.indexOf(entry);
-      if (i === -1) return false;
+      if (i === -1) return null;
       if (mounted(entry)) return land(entry.node);
       // Rendered but not attached (its text didn't match): find it by position.
-      const byPos = entry.pos
-        ? q.all(theFeed, S.turn).find((t) => safe('position', () => S.turnPosition(t), null) === entry.pos)
-        : undefined;
+      const byPos = turnOf(entry);
       if (byPos) return land(byPos);
       const rendered: number[] = [];
       list.forEach((e, j) => mounted(e) && rendered.push(j));
@@ -1364,10 +1888,10 @@ export function createSession(view: View, convId: string | null): Session {
           const topA = nodeTop(above);
           const topB = nodeTop(below);
           const guess = topA + ((topB - topA) * (i - above)) / (below - above);
-          if (Math.abs(guess - lineOffset()) < 2) return false;
+          if (Math.abs(guess - lineOffset()) < 2) return null;
           scrollContainerBy(container, guess - lineOffset(), 'instant');
           await settle(theFeed, SEEK_SETTLE_MS, signal);
-          if (signal.aborted || stopped) return false;
+          if (signal.aborted || stopped) return null;
           rebuild();
           continue;
         }
@@ -1375,33 +1899,26 @@ export function createSession(view: View, convId: string | null): Session {
         const perQuestion = lastR > first ? spread / (lastR - first) : scrollEl.scrollHeight / Math.max(1, list.length);
         const page = 0.9 * containerHeight(container);
         if (i < first) {
-          if (scrollEl.scrollTop <= 1) {
-            // Already at the top: the question is in "earlier messages".
-            const button = findLoadEarlierButton();
-            if (!button) return false;
-            const before = countTurns(theFeed);
-            const height = feedHeight(theFeed);
-            button.click();
-            await waitForDom(
-              () => countTurns(theFeed) > before || feedHeight(theFeed) > height + 1,
-              LOAD_STEP_TIMEOUT_MS,
-              signal
-            );
-            await nextFrame();
-            rebuild();
+          if (scrollEl.scrollTop <= 1 || i === 0) {
+            // At the top (or going for the very first question: straight
+            // there): the question is in "earlier messages".
+            if (scrollEl.scrollTop > 1 && (await reachTop(container, theFeed, signal))) continue;
+            if (!(await loadEarlierOrAskUser(theFeed, container, signal))) return null;
+            if (++loads > SEEK_MAX_LOADS) return null;
+            step = 0;
             continue;
           }
           scrollContainerBy(container, -Math.max(page, 0.8 * (first - i) * perQuestion), 'instant');
         } else {
-          if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) return false;
+          if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) return null;
           scrollContainerBy(container, Math.max(page, 0.8 * (i - lastR) * perQuestion), 'instant');
         }
       }
       await settle(theFeed, SEEK_SETTLE_MS, signal);
-      if (signal.aborted || stopped) return false;
+      if (signal.aborted || stopped) return null;
       rebuild();
     }
-    return false;
+    return null;
   }
 
   // ----- "Load all" -------------------------------------------------------------
@@ -1485,7 +2002,7 @@ export function createSession(view: View, convId: string | null): Session {
     clearTimeout(debounceTimer);
     clearTimeout(maxWaitTimer);
     clearTimeout(apiTimer);
-    if (acquireFrame) cancelAnimationFrame(acquireFrame);
+    if (acquireFrame) clearTimeout(acquireFrame);
     for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, onUserScroll);
     feed = null;
     tracker = null;

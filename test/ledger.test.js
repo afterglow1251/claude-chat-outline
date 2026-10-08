@@ -141,3 +141,27 @@ scenario('API list, estimated heights', false, { api: true, estimate: true });
   assert(ledger.list().slice(-1)[0].node, 'cache: last question attached to its node');
   console.log('PASS cache seed + page');
 }
+
+// API list with positions, but the page numbers its turns differently
+// (claude.ai's numbering does not follow the API's): no rendered turn may
+// be attached to another question just because the numbers line up.
+{
+  const texts = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+  const ledger = createLedger();
+  ledger.setAuthoritative(texts.map((text, i) => ({ text, pos: 2 * i + 1 })));
+  // The page shows beta, gamma and delta; two of them carry the API's
+  // number, but delta is numbered 9 (the page counts messages the API does
+  // not): by number alone it would be taken for epsilon.
+  const node = (name) => ({ isConnected: true, name, getBoundingClientRect: () => ({ top: 0 }) });
+  const feed = { getBoundingClientRect: () => ({ top: 0 }) };
+  const items = [
+    { target: node('beta'), full: 'beta', label: 'beta', pos: 3 },
+    { target: node('gamma'), full: 'gamma', label: 'gamma', pos: 5 },
+    { target: node('delta'), full: 'delta', label: 'delta', pos: 9 },
+  ];
+  ledger.absorb(items, feed);
+  const attached = ledger.list().map((e) => (e.node ? e.node.name : null));
+  assert.deepStrictEqual(attached, [null, 'beta', 'gamma', 'delta', null], 'mismatched numbering: each turn attached to its own text');
+  assert.deepStrictEqual(labels(ledger), texts, 'mismatched numbering: nothing added');
+  console.log('PASS API list, page numbering differs');
+}

@@ -2,10 +2,14 @@
 // theming, keyboard handling and persisted settings. It knows nothing about
 // Claude's DOM except for the theme hints on <html> and the optional "push"
 // padding on <body>.
+import { h, icon } from './dom';
+import { HOST_ID } from './events';
+import { createHighlighter } from './highlight';
+import { createQuestionList } from './question-list';
 import * as S from './selectors';
 import type { LoadReason, LoadState, RenderResult, Status, View } from './types';
 
-export const HOST_ID = 'claude-outline-host';
+export { HOST_ID };
 const WIDTH_MIN = 200;
 const WIDTH_MAX = 520;
 const NOTICE_MS = 4000;
@@ -23,8 +27,8 @@ const DEFAULTS: Readonly<Settings> = Object.freeze({ collapsed: false, width: 30
 const HINT_LOAD_EARLIER = 'Earlier messages are not loaded. Press ↑ to list every question.';
 const HINT_SCROLL = 'Scroll through the chat once, or press ↑, to list every question.';
 
-const STATUS_TEXT: Record<Exclude<Status, 'ok'>, string> = {
-  'no-feed': 'Waiting for messages…',
+// 'no-feed' (a chat still loading) has no text on purpose.
+const STATUS_TEXT: Record<Exclude<Status, 'ok' | 'no-feed'>, string> = {
   empty: 'No questions yet.',
   'selectors-broken':
     "Couldn't find your messages — selectors may be outdated. Run __claudeOutline.debug() in the console for details.",
@@ -49,34 +53,6 @@ const ICONS = {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-// Built with createElement rather than innerHTML so a Trusted Types policy
-// on the page can never break the panel.
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Record<string, string> = {},
-  children: (Node | string)[] = []
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'text') el.textContent = value;
-    else if (key === 'className') el.className = value;
-    else el.setAttribute(key, value);
-  }
-  for (const child of children) el.append(child);
-  return el;
-}
-
-function icon(path: string): SVGSVGElement {
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS(NS, 'path');
-  p.setAttribute('d', path);
-  svg.append(p);
-  return svg;
-}
 
 const clampWidth = (w: unknown) => Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(Number(w) || DEFAULTS.width)));
 
@@ -167,6 +143,8 @@ export interface Panel extends View {
   host: HTMLElement;
   shadow: ShadowRoot;
   setVisible(visible: boolean): void;
+  /** Which conversation is shown (its stars), or null off a chat page. */
+  setConversation(convId: string | null): void;
   /** Clear per-conversation state on route change. */
   reset(): void;
   destroy(): void;
@@ -182,8 +160,6 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     incomplete: false,
     loading: null as { clicks: number; scan?: number } | null, // while "Load all" runs
     notice: '', // result of the last "Load all"
-    active: -1,
-    roving: 0, // the one list button with tabindex=0
     returnFocus: null as Element | null,
   };
   const cleanups: (() => void)[] = [];
@@ -244,7 +220,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     statusText,
     cancelBtn,
   ]);
-  const list = h('ol', { className: 'list' });
+  const questions = createQuestionList({ onSelect });
   const resizer = h('div', {
     className: 'resizer',
     role: 'separator',
@@ -264,7 +240,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
         collapseBtn,
       ]),
       status,
-      list,
+      questions.element,
     ]),
   ]);
   const tabCount = h('span', { className: 'tab-count' });
@@ -279,7 +255,10 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     },
     [icon(ICONS.expand), h('span', { className: 'tab-label' }, ['Outline']), tabCount]
   );
-  shadow.append(panel, tab);
+  // Below the panel and the tab: the highlight is drawn over the chat, never over the outline.
+  const highlights = h('div', { className: 'highlights' });
+  const highlighter = createHighlighter(highlights);
+  shadow.append(highlights, panel, tab);
   panel.style.setProperty('--co-top', `${S.layout.panelTop}px`);
   tab.style.setProperty('--co-top', `${S.layout.panelTop}px`);
 
@@ -320,7 +299,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
       if (back instanceof HTMLElement && back !== host && back.isConnected) back.focus();
       else tab.focus();
     } else {
-      if (!focusItem(state.roving)) collapseBtn.focus();
+      if (!questions.focus()) collapseBtn.focus();
     }
   }
 
@@ -332,57 +311,12 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
 
   // ----- rendering --------------------------------------------------------
 
-  function buttons(): NodeListOf<HTMLButtonElement> {
-    return list.querySelectorAll('button');
-  }
-
-  function focusItem(index: number): boolean {
-    const all = buttons();
-    if (!all.length) return false;
-    const i = Math.min(all.length - 1, Math.max(0, index));
-    setRoving(i);
-    all[i].focus();
-    return true;
-  }
-
-  function setRoving(index: number) {
-    const all = buttons();
-    if (all[state.roving]) all[state.roving].tabIndex = -1;
-    state.roving = index;
-    if (all[index]) all[index].tabIndex = 0;
-  }
-
-  function newItem(index: number): HTMLLIElement {
-    const button = h('button', { type: 'button', 'data-index': String(index), tabindex: '-1' }, [
-      h('span', { className: 'num', 'aria-hidden': 'true' }, [`${index + 1}.`]),
-      h('span', { className: 'label' }),
-    ]);
-    return h('li', {}, [button]);
-  }
-
-  // Patch the list in place: only changed labels are touched, so nothing
-  // flickers while Claude streams and the list is rebuilt every second.
-  function renderItems(items: RenderResult['items']) {
-    const lis = list.children;
-    items.forEach((item, i) => {
-      if (!lis[i]) list.append(newItem(i));
-      const button = lis[i].firstElementChild as HTMLButtonElement;
-      const label = button.lastElementChild!;
-      if (label.textContent !== item.label) label.textContent = item.label;
-      const title = item.full || item.label;
-      if (button.title !== title) button.title = title;
-    });
-    while (lis.length > items.length) list.lastElementChild!.remove();
-    const roving = Math.min(state.roving, Math.max(0, items.length - 1));
-    state.roving = roving;
-    buttons().forEach((b, i) => (b.tabIndex = i === roving ? 0 : -1));
-  }
-
   function renderStatus() {
     let text = '';
     if (state.loading && state.loading.scan != null) text = `Scanning the chat… ${state.loading.scan}%`;
     else if (state.loading) text = `Loading earlier messages… (${state.loading.clicks})`;
-    else if (state.status !== 'ok') text = STATUS_TEXT[state.status];
+    // Waiting for a chat to load needs no words: the list fades in when ready.
+    else if (state.status !== 'ok' && state.status !== 'no-feed') text = STATUS_TEXT[state.status];
     else if (state.notice) text = state.notice;
     else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
     status.hidden = !text;
@@ -399,35 +333,14 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     state.status = result.status;
     state.canLoadEarlier = result.canLoadEarlier;
     state.incomplete = result.incomplete;
-    renderItems(result.items);
+    // Nothing known yet for this chat: an empty list and no count.
+    const pending = result.status === 'no-feed' && !result.items.length;
+    questions.render(result.items, result.settled);
     const n = result.items.length;
     const more = state.incomplete ? '+' : '';
-    count.textContent = tabCount.textContent = `${n}${more}`;
+    count.textContent = tabCount.textContent = pending ? '' : `${n}${more}`;
     count.setAttribute('aria-label', more ? `${n} questions listed, more not loaded yet` : `${n} questions`);
     renderStatus();
-  }
-
-  function setActive(index: number) {
-    const all = buttons();
-    const previous = all[state.active];
-    if (previous) previous.removeAttribute('aria-current');
-    state.active = index;
-    const button = all[index];
-    if (!button) return;
-    button.setAttribute('aria-current', 'true');
-    // Keep keyboard entry point on the current item unless the user is
-    // already moving around inside the list.
-    if (!list.contains(shadow.activeElement)) setRoving(index);
-    keepInView(button);
-  }
-
-  // Same as scrollIntoView({block: "nearest"}) but limited to the list, so
-  // it can never scroll Claude's page as a side effect.
-  function keepInView(el: Element) {
-    const box = list.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    if (r.top < box.top) list.scrollTop -= box.top - r.top;
-    else if (r.bottom > box.bottom) list.scrollTop += r.bottom - box.bottom;
   }
 
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -451,26 +364,6 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
 
   // ----- events -----------------------------------------------------------
 
-  listen<MouseEvent>(list, 'click', (e) => {
-    const button = (e.target as Element).closest<HTMLButtonElement>('button[data-index]');
-    if (!button) return;
-    const index = Number(button.dataset.index);
-    setRoving(index);
-    button.blur();
-    onSelect(index);
-  });
-
-  listen<KeyboardEvent>(list, 'keydown', (e) => {
-    const all = Array.from(buttons());
-    const index = all.indexOf(shadow.activeElement as HTMLButtonElement);
-    const moves: Record<string, number> = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: all.length - 1 };
-    const next = moves[e.key];
-    if (next === undefined || index < 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    focusItem(next);
-  });
-
   listen(loadBtn, 'click', () => {
     state.notice = '';
     onLoadAll();
@@ -484,9 +377,27 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
   listen(collapseBtn, 'click', () => setCollapsed(true, true));
   listen(tab, 'click', () => setCollapsed(false, false));
 
+  // Typing in the filter field must stay in it. claude.ai moves the focus
+  // to its own message box on keys typed outside an editable element, and
+  // from outside the shadow root our field looks like a plain <div>. So key
+  // events from our own text fields stop at the host, after the panel's
+  // own handlers have seen them.
+  for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input'] as const) {
+    listen(host, type, (e) => {
+      if (e.composedPath()[0] instanceof HTMLInputElement) e.stopPropagation();
+    });
+  }
+
   // Esc inside the panel collapses it. Propagation is stopped so Claude's
   // own global Esc handling doesn't also fire.
   listen<KeyboardEvent>(shadow, 'keydown', (e) => {
+    // "/" anywhere in the panel (outside the filter field) starts filtering.
+    if (e.key === '/' && !(e.target instanceof HTMLInputElement)) {
+      e.preventDefault();
+      e.stopPropagation();
+      questions.focusSearch();
+      return;
+    }
     if (e.key !== 'Escape' || state.collapsed) return;
     e.preventDefault();
     e.stopPropagation();
@@ -522,17 +433,22 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     resizer.setPointerCapture(e.pointerId);
     panel.classList.add('resizing');
   });
-  listen<PointerEvent>(resizer, 'pointermove', (e) => {
-    if (dragging) setWidth(window.innerWidth - RIGHT_GAP - e.clientX, false);
-  });
   const endDrag = () => {
     if (!dragging) return;
     dragging = false;
     panel.classList.remove('resizing');
     storageSet({ width: state.width });
   };
+  listen<PointerEvent>(resizer, 'pointermove', (e) => {
+    if (!dragging) return;
+    // The button can be released where no pointerup reaches us (outside the
+    // window, over a browser UI): a move without it ends the drag.
+    if ((e.buttons & 1) === 0) return endDrag();
+    setWidth(window.innerWidth - RIGHT_GAP - e.clientX, false);
+  });
   listen(resizer, 'pointerup', endDrag);
   listen(resizer, 'pointercancel', endDrag);
+  listen(resizer, 'lostpointercapture', endDrag);
   listen<KeyboardEvent>(resizer, 'keydown', (e) => {
     const step = e.key === 'ArrowLeft' ? 16 : e.key === 'ArrowRight' ? -16 : 0;
     if (!step) return;
@@ -581,21 +497,27 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     host,
     shadow,
     render,
-    setActive,
+    setActive: (index) => questions.setActive(index),
+    highlight: (target, clip) => highlighter.show(target, clip),
     setLoadState,
+    unreachable: (index) => questions.expand(index),
+    setConversation: (convId) => questions.setConversation(convId),
     setVisible(visible) {
       state.visible = visible;
       apply();
     },
     reset() {
       clearTimeout(noticeTimer);
+      highlighter.clear();
       state.loading = null;
       state.notice = '';
-      state.active = -1;
-      state.roving = 0;
-      render({ status: 'no-feed', items: [], canLoadEarlier: false, incomplete: false });
+      state.status = 'no-feed';
+      state.canLoadEarlier = state.incomplete = false;
+      count.textContent = tabCount.textContent = '';
+      renderStatus();
     },
     destroy() {
+      highlighter.clear();
       cleanups.forEach((fn) => fn());
       themeObserver.disconnect();
       state.visible = false;

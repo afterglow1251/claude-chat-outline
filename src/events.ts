@@ -17,3 +17,6 @@ export interface ConversationPayload {
 /** Limits on what is relayed, so a huge chat (or a bogus event) stays cheap. */
 export const PAYLOAD_MAX_QUESTIONS = 5000;
 export const PAYLOAD_TEXT_MAX = 2000;
+
+/** id of the panel's host element (the one node the extension adds to the page). */
+export const HOST_ID = 'claude-outline-host';

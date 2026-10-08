@@ -97,6 +97,26 @@ export function createCache(convId: string): Cache {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Starred questions, per conversation. Keyed by the question's matching key
+// (see keyOf in outline.ts), so a star survives reloads and edits elsewhere
+// in the chat. Not pruned: a few short strings per starred chat.
+// ---------------------------------------------------------------------------
+
+const STARS_PREFIX = 'outline-stars:';
+
+export async function loadStars(convId: string): Promise<string[]> {
+  const key = STARS_PREFIX + convId;
+  const value = (await storageGet({ [key]: null }))[key];
+  return Array.isArray(value) ? value.filter((k): k is string => typeof k === 'string') : [];
+}
+
+export function saveStars(convId: string, keys: readonly string[]): void {
+  const key = STARS_PREFIX + convId;
+  if (keys.length) storageSet({ [key]: [...keys] });
+  else storageRemove([key]);
+}
+
 // Keeps the cache bounded: the most recent chats, none older than 90 days.
 export async function pruneCache(): Promise<void> {
   const all = await storageGet(null);

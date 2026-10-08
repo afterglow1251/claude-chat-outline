@@ -1,7 +1,7 @@
 // Entry point of the content script: wires the outline core to the panel
 // and handles the page lifecycle (SPA route changes, bfcache, teardown).
 import { DEBUG_EVENT } from './events';
-import { createSession, debugReport, isConversationPath, watchLocation, type Session } from './outline';
+import { createSession, debugReport, isConversationPath, renderedTurns, watchLocation, type Session } from './outline';
 import { createPanel, HOST_ID, type Panel } from './panel';
 import { conversationId, pruneCache } from './sources';
 
@@ -31,13 +31,16 @@ function onRouteChange() {
   const convId = isChat ? conversationId(location.pathname) : null;
   const key = isChat ? convId || location.pathname : null;
   if (session && key === sessionKey) return;
+  // Leaving a chat: what is rendered now belongs to it, not to the next one.
+  const leftover = session ? renderedTurns() : undefined;
   session?.stop();
   session = null;
   sessionKey = key;
   panel.reset();
+  panel.setConversation(convId);
   panel.setVisible(isChat);
   if (!isChat) return;
-  session = createSession(panel, convId);
+  session = createSession(panel, convId, leftover);
   session.start();
 }
 

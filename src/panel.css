@@ -10,6 +10,7 @@
   --co-active-bg: rgba(217, 119, 87, 0.1);
   --co-accent: #d97757;
   --co-focus: #2c84db;
+  --co-input-bg: #ffffff;
   --co-error: #b5332a;
   --co-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   color-scheme: light;
@@ -23,6 +24,7 @@
   --co-hover: rgba(255, 255, 255, 0.05);
   --co-active-bg: rgba(217, 119, 87, 0.16);
   --co-focus: #66a7ee;
+  --co-input-bg: #1f1e1d;
   --co-error: #f08a80;
   --co-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
@@ -204,36 +206,168 @@ svg {
   }
 }
 
+/* ----- filter ----------------------------------------------------------- */
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border-bottom: 1px solid var(--co-border);
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.search-box > svg {
+  position: absolute;
+  left: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--co-muted);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 52px 0 30px;
+  font: inherit;
+  color: var(--co-fg);
+  background: var(--co-input-bg);
+  border: 1px solid var(--co-border);
+  border-radius: 8px;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--co-muted);
+}
+
+.search-input:focus-visible {
+  border-color: var(--co-focus);
+  box-shadow: 0 0 0 1px var(--co-focus);
+}
+
+.search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-count {
+  position: absolute;
+  right: 9px;
+  font-size: 11px;
+  color: var(--co-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.star-filter {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--co-border);
+  border-radius: 8px;
+}
+
+.star-filter[aria-pressed='true'] {
+  color: var(--co-accent);
+  border-color: var(--co-accent);
+  background: var(--co-active-bg);
+}
+
+.star-filter[aria-pressed='true'] svg {
+  fill: currentColor;
+}
+
 /* ----- list ------------------------------------------------------------- */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
 
 .list {
   list-style: none;
   margin: 0;
-  padding: 6px;
-  overflow-y: auto;
-  flex: 1;
-  overscroll-behavior: contain;
+  padding: 0;
 }
 
-.list button {
+.list li {
+  display: flex;
+  flex-wrap: wrap; /* the detail block, when shown, takes a row of its own */
+  align-items: flex-start;
+  border-radius: 6px;
+}
+
+/* The full text of a question claude.ai cannot show. */
+.detail {
+  flex-basis: 100%;
+  margin: 0 4px 6px 10px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--co-accent);
+  color: var(--co-fg);
+  font-size: 0.95em;
+}
+
+.detail p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.detail-note {
+  color: var(--co-muted);
+  margin-bottom: 6px !important;
+}
+
+li[data-expanded] .item {
+  color: var(--co-fg);
+}
+
+.list li:hover {
+  background: var(--co-hover);
+}
+
+.item {
   position: relative;
   display: flex;
   gap: 6px;
-  width: 100%;
-  padding: 6px 8px 6px 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 10px;
   border-radius: 6px;
   text-align: left;
   color: var(--co-muted);
 }
 
-.list button:hover {
-  background: var(--co-hover);
+li:hover .item {
   color: var(--co-fg);
 }
 
-.list button[aria-current='true'] {
+.item[aria-current='true'] {
   background: var(--co-active-bg);
   color: var(--co-fg);
+}
+
+/* A question just picked keeps the focus (so the arrows go on from it),
+   without the ring; the keyboard brings the ring back. */
+.scroll[data-picked] .item:focus-visible {
+  outline: none;
 }
 
 .num {
@@ -245,6 +379,82 @@ svg {
 
 .label {
   overflow-wrap: anywhere;
+}
+
+.star {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 30px;
+  color: var(--co-muted);
+  border-radius: 6px;
+  opacity: 0;
+}
+
+.star svg {
+  width: 14px;
+  height: 14px;
+}
+
+li:hover .star,
+li:focus-within .star,
+.star[aria-pressed='true'] {
+  opacity: 1;
+}
+
+.star:hover {
+  color: var(--co-fg);
+}
+
+.star[aria-pressed='true'] {
+  color: var(--co-accent);
+}
+
+.star[aria-pressed='true'] svg {
+  fill: currentColor;
+}
+
+.empty {
+  margin: 0;
+  padding: 16px 10px;
+  text-align: center;
+  color: var(--co-muted);
+}
+
+/* ----- jump highlight (see highlight.ts) ------------------------------- */
+
+.highlights {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.highlight {
+  position: fixed;
+  overflow: hidden;
+  opacity: 0;
+  background: rgba(217, 119, 87, 0.07);
+  box-shadow: inset 0 0 0 2px rgba(217, 119, 87, 0.75);
+}
+
+.highlight-sweep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 15%,
+    rgba(217, 119, 87, 0.08) 35%,
+    rgba(217, 119, 87, 0.3) 50%,
+    rgba(217, 119, 87, 0.08) 65%,
+    transparent 85%
+  );
+  transform: translateX(-100%);
+}
+
+:host([data-theme='dark']) .highlight {
+  background: rgba(217, 119, 87, 0.1);
+  box-shadow: inset 0 0 0 2px rgba(217, 119, 87, 0.85);
 }
 
 /* ----- collapsed tab ---------------------------------------------------- */

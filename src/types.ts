@@ -41,14 +41,19 @@ export interface Entry {
   pending: boolean;
 }
 
+/** What the panel shows per question. `key` identifies it for stars. */
+export type ListItem = Pick<Entry, 'key' | 'label' | 'full'>;
+
 export type Status = 'no-feed' | 'empty' | 'selectors-broken' | 'ok';
 
 export interface RenderResult {
   status: Status;
   strategy?: string | null;
-  items: readonly Pick<Entry, 'label' | 'full'>[];
+  items: readonly ListItem[];
   canLoadEarlier: boolean;
   incomplete: boolean;
+  /** The list is the conversation's full one (from the API), not a page-only or cached guess. */
+  settled: boolean;
 }
 
 export type LoadReason = 'done' | 'cancelled' | 'limit' | 'timeout' | 'stalled' | 'error';
@@ -65,4 +70,15 @@ export interface View {
   render(result: RenderResult): void;
   setActive(index: number): void;
   setLoadState(state: LoadState): void;
+  /**
+   * Marks the message you jumped to. `target` is asked for the message on
+   * every frame (null while it is not rendered); clipped to `clip` (the
+   * chat's scroller), or the viewport if null.
+   */
+  highlight(target: () => Element | null, clip: Element | null): void;
+  /**
+   * The question is in the list but claude.ai does not show it (the page
+   * loads a chat's history only so far back): show its text in the panel.
+   */
+  unreachable(index: number): void;
 }

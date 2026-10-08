@@ -19,8 +19,15 @@
   const check = (cond, name, detail) => log(!!cond, name, cond ? '' : detail);
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // The jump highlight is a Web Animation on the turn or the bubble inside it.
-  const flashing = (el) => !!el && el.getAnimations({ subtree: true }).length > 0;
+  // The jump highlight is a box in the panel's shadow root laid over the
+  // message: shown, and placed over this element's message.
+  const flashing = (el) => {
+    const box = el && root().querySelector('.highlight');
+    if (!box) return false;
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    return b.top >= r.top - 1 && b.bottom <= r.bottom + 1 && b.height > 0;
+  };
   // What __claudeOutline.debug() logs (the content script's internals are
   // bundled and not reachable from the page).
   function debugLog(onReturn) {
@@ -49,9 +56,11 @@
   const API = new URLSearchParams(location.search).has('api');
   // The list comes from the response the app itself receives; the extension's own request fails.
   const INTERCEPT = new URLSearchParams(location.search).has('intercept');
+  // Today's claude.ai: earlier messages load only on a wheel scroll up at the top (see fixture.html).
+  const WHEELLOAD = new URLSearchParams(location.search).has('wheelload');
   const host = () => document.getElementById('claude-outline-host');
   const root = () => host().shadowRoot;
-  const items = () => Array.from(root().querySelectorAll('.list button'));
+  const items = () => Array.from(root().querySelectorAll('.list button.item'));
   const labels = () => items().map((b) => b.querySelector('.label').textContent);
   const current = () => items().findIndex((b) => b.getAttribute('aria-current') === 'true');
   const statusText = () => root().querySelector('.status-text').textContent;
@@ -90,7 +99,44 @@
 
   try {
     localStorage.removeItem('co-store');
+    // ?debuglog=1: the extension's jump diagnostics go to the console too.
+    if (new URLSearchParams(location.search).has('debuglog')) localStorage.setItem('claude-outline-debug', '1');
     check(await waitFor(visible), 'panel is shown on a /chat/<id> URL');
+
+    if (WHEELLOAD) {
+      // ---- a jump far up through a chat that loads only on the user's wheel ----
+      const chat = fixture.CHATS['aaaaaaaa-0000-4000-8000-000000000001'];
+      const all = chat.questions.map(toLabel);
+      check(await waitFor(() => labels().join('|') === all.join('|'), 3000), 'all questions listed (API)', labels().join(' | '));
+      const firstText = chat.questions[0];
+      const findFirst = () => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(firstText.replace(/\s+/g, ' ').slice(0, 25)));
+      check(!findFirst(), 'first question not loaded yet');
+      const snapshot = labels().join('|');
+      items()[0].click();
+      // The user keeps nudging the wheel up (as they would), momentum included:
+      // these must help the jump along, never cancel it.
+      const wheel = () => scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true, composed: true }));
+      const arrived = await (async () => {
+        const end = performance.now() + 25000;
+        while (performance.now() < end) {
+          wheel();
+          await sleep(150);
+          wheel();
+          await sleep(250);
+          if (findFirst() && flashing(findFirst())) return true;
+        }
+        return false;
+      })();
+      check(arrived, 'wheel scrolls at the top load the history and the jump reaches the first question', `loads=${window.wheelLoads || 0}, shown=${chat.shownTurns}`);
+      check((window.wheelLoads || 0) >= 3, 'it took several loads to get there', `loads=${window.wheelLoads || 0}`);
+      check(await waitFor(() => current() === 0, 3000), 'the first question becomes the active item', `current=${current()}`);
+      check(labels().join('|') === snapshot, 'list unchanged by the jump');
+      // A wheel down now is a real user scroll: nothing to cancel, nothing breaks.
+      scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, composed: true }));
+      await sleep(300);
+      check(labels().join('|') === snapshot, 'list still unchanged');
+      return;
+    }
 
     if (variant === 'broken') {
       check(await waitFor(() => /Couldn't find your messages/.test(statusText())), 'broken selectors show explicit error state', statusText());
@@ -162,8 +208,9 @@
       const callsNow = window.apiCalls;
       history.replaceState({}, '', location.pathname + location.search + '#same-chat');
       await sleep(300);
-      const expectNow = INTERCEPT ? [...all(), 'API streamed question'] : all();
-      check(window.apiCalls === callsNow && labels().join('|') === expectNow.join('|'), 'URL change within the same chat keeps the session');
+      // stream() added the question to the fixture's chat, so all() has it already.
+      const expectNow = all();
+      check(window.apiCalls === callsNow && labels().join('|') === expectNow.join('|'), 'URL change within the same chat keeps the session', `apiCalls ${callsNow} -> ${window.apiCalls}; ${labels().join(' | ')}`);
 
       fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
       const allB = fixture.CHATS['bbbbbbbb-0000-4000-8000-000000000002'].questions.map(toLabel);
@@ -282,7 +329,7 @@
     const offset = target.getBoundingClientRect().top - scroller().getBoundingClientRect().top;
     check(Math.abs(offset - 80) <= 3, 'clicked message scrolled to scroller top + 80px offset', `offset=${offset.toFixed(1)}`);
     check(await waitFor(() => current() === idx), 'clicked bullet becomes active (aria-current)', `current=${current()}`);
-    check(await waitFor(() => !flashing(target) && target.hasAttribute('style') === hadStyle, 2000), 'flash leaves nothing behind (no animation, style attribute untouched)');
+    check(await waitFor(() => !root().querySelector('.highlight') && !target.getAnimations({ subtree: true }).length && target.hasAttribute('style') === hadStyle, 3000), 'highlight goes away and nothing is left on the message');
     check(window.scrollY === 0, 'window itself never scrolled');
 
     // ---- active tracking on manual scroll --------------------------------

@@ -31,6 +31,25 @@ export function turnPosition(el: Element): number | null {
   return m ? Number(m[1]) : null;
 }
 
+// How many turns the page has loaded (aria-setsize, or M in "Message N of
+// M"). claude.ai loads a chat's last messages first ("Load earlier
+// messages" adds older ones on top), and numbers turns within what is
+// loaded: N is NOT the position in the whole conversation.
+export function turnSetSize(el: Element): number | null {
+  const setsize = Number(el.getAttribute('aria-setsize'));
+  if (setsize > 0) return setsize;
+  const m = /\bof\s+(\d+)/i.exec(el.getAttribute('aria-label') || '');
+  return m ? Number(m[1]) : null;
+}
+
+// Distance of a turn from the last loaded one (0 = the last). Unlike the
+// position, it does not change when earlier messages are loaded.
+export function turnFromEnd(el: Element): number | null {
+  const pos = turnPosition(el);
+  const size = turnSetSize(el);
+  return pos != null && size != null && size >= pos ? size - pos : null;
+}
+
 // Ordered fallback chain. The first strategy returning > 0 nodes is used.
 export const userMessageStrategies: readonly Strategy[] = [
   {
