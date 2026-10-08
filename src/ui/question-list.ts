@@ -52,6 +52,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
   let stars = new Set<string>();
   let convId: string | null = null;
   let active = -1;
+  let inView = -1; // the active item the list was last scrolled to
   let swapping = false; // the previous chat's list is fading out
   let currentFade: Animation | null = null;
   let awaitingActive = false; // list drawn but hidden until it is final and the active item is known
@@ -206,7 +207,13 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     active = index;
     markActive();
     const inList = list.children[index]?.querySelector('.item');
-    if (inList && isVisible(inList)) keepInView(inList);
+    // The same item is reported again after every rebuild (claude.ai loads
+    // turns all along a jump through a long chat): bring it into view once,
+    // not each time, or it fights the user scrolling the list meanwhile.
+    if (index !== inView && inList && isVisible(inList)) {
+      keepInView(inList);
+      inView = index;
+    }
     if (!element.contains(getRootFocus())) updateRoving();
     if (settled) activeOfFinal = true;
     if (awaitingActive && settled && index >= 0) reveal();
@@ -357,6 +364,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       starredOnly = false;
       input.value = '';
       active = -1;
+      inView = -1;
       expanded = -1;
       clearTimeout(revealTimer);
       list.style.opacity = '';
@@ -400,6 +408,9 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       const target = scroller.querySelector<HTMLButtonElement>('.item[tabindex="0"]') || visibleItems()[0];
       if (!target) return false;
       target.focus();
+      // Opened with the shortcut: the row is marked already; the ring
+      // comes back once the arrows move.
+      setPicked(true);
       return true;
     },
     focusSearch() {
