@@ -2,11 +2,13 @@
 
 A Chrome extension that adds a table of contents to claude.ai chats: every question you asked, in one panel. Click one to jump to it, even in very long chats.
 
+**[See it in action →](https://afterglow1251.github.io/claude-chat-outline/)**
+
 ![The Questions panel next to a claude.ai chat](docs/screenshot-light.png)
 
 ## Install
 
-1. Download [`claude-chat-outline.zip`](https://github.com/DereviankoAndrew/claude-chat-outline/releases/latest/download/claude-chat-outline.zip) and unzip it.
+1. Download [`claude-chat-outline.zip`](https://github.com/afterglow1251/claude-chat-outline/releases/latest/download/claude-chat-outline.zip) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the unzipped folder.
 
