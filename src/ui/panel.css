@@ -398,7 +398,7 @@ li:hover .item {
 }
 
 li:hover .star,
-li:focus-within .star,
+li:has(:focus-visible) .star,
 .star[aria-pressed='true'] {
   opacity: 1;
 }
