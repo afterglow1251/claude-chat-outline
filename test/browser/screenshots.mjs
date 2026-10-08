@@ -2,7 +2,7 @@
 //
 // Usage: python3 test/browser/serve.py 8765 &   then   node test/browser/screenshots.mjs
 // (CHROME=/path/to/chrome to override). Writes docs/screenshot-light.png and
-// docs/screenshot-dark.png and docs/social-preview.png. Drives headless Chrome over the DevTools
+// docs/screenshot-dark.png. Drives headless Chrome over the DevTools
 // protocol with Node's built-in WebSocket, so there are no dependencies.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -54,13 +54,6 @@ try {
     writeFileSync(join(ROOT, 'docs', name), Buffer.from(data, 'base64'));
     console.log('wrote docs/' + name);
   }
-  // Social preview card, 1280x640 (upload in GitHub: Settings > Social preview).
-  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 640, deviceScaleFactor: 1, mobile: false });
-  await send('Page.navigate', { url: `${BASE}/test/browser/social-card.html` });
-  await sleep(1500);
-  const { data } = await send('Page.captureScreenshot', { format: 'png' });
-  writeFileSync(join(ROOT, 'docs', 'social-preview.png'), Buffer.from(data, 'base64'));
-  console.log('wrote docs/social-preview.png');
   ws.close();
 } finally {
   chrome.kill();

@@ -30,7 +30,7 @@ async function copyStatic() {
   manifest.version = pkg.version; // package.json is the one place the version lives
   await writeFile(`${out}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
   await cp(`${root}src/ui/panel.css`, `${out}/panel.css`);
-  await cp(`${root}icons`, `${out}/icons`, { recursive: true });
+  await cp(`${root}src/icons`, `${out}/icons`, { recursive: true });
 }
 
 await rm(out, { recursive: true, force: true });
