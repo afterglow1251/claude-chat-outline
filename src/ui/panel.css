@@ -359,8 +359,12 @@ li:hover .item {
   color: var(--co-fg);
 }
 
-.item[aria-current='true'] {
+/* The whole row, star included, marks the question being read. */
+.list li:has(.item[aria-current='true']) {
   background: var(--co-active-bg);
+}
+
+.item[aria-current='true'] {
   color: var(--co-fg);
 }
 
