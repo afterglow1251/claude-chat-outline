@@ -418,9 +418,13 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       });
     },
     focus() {
+      // The rows were hidden while the panel was collapsed, so the Tab stop
+      // may be stale: put it on the active question first. No scroll on
+      // focus: the list is already where it should be (revealActive).
+      updateRoving();
       const target = scroller.querySelector<HTMLButtonElement>('.item[tabindex="0"]') || visibleItems()[0];
       if (!target) return false;
-      target.focus();
+      target.focus({ preventScroll: true });
       // Opened with the shortcut: the row is marked already; the ring
       // comes back once the arrows move.
       setPicked(true);
