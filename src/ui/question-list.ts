@@ -42,6 +42,11 @@ export interface QuestionList {
   setConversation(convId: string | null): void;
   /** Focuses the keyboard entry point; false if the list is empty. */
   focus(): boolean;
+  /**
+   * Scrolls the list to centre the active question; for when the list
+   * becomes visible again (it can't follow the chat while hidden).
+   */
+  revealActive(): void;
   focusSearch(): void;
 }
 
@@ -230,11 +235,19 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
 
   // Same as scrollIntoView({ block: 'nearest' }) but limited to the list, so
   // it can never scroll Claude's page as a side effect.
+  // The whole row (it carries the highlight), clear of the list's padding;
+  // the last row scrolls the list to its very end.
   function keepInView(el: Element) {
+    const row = el.closest('li') || el;
+    if (row === list.lastElementChild) {
+      scroller.scrollTop = scroller.scrollHeight;
+      return;
+    }
+    const pad = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
     const box = scroller.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    if (r.top < box.top) scroller.scrollTop -= box.top - r.top;
-    else if (r.bottom > box.bottom) scroller.scrollTop += r.bottom - box.bottom;
+    const r = row.getBoundingClientRect();
+    if (r.top < box.top + pad) scroller.scrollTop -= box.top + pad - r.top;
+    else if (r.bottom > box.bottom - pad) scroller.scrollTop += r.bottom - (box.bottom - pad);
   }
 
   // ----- keyboard -------------------------------------------------------------
@@ -412,6 +425,18 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       // comes back once the arrows move.
       setPicked(true);
       return true;
+    },
+    revealActive() {
+      const el = list.children[active]?.querySelector('.item');
+      if (!el || !isVisible(el)) return;
+      const row = el.closest('li') || el;
+      if (row === list.lastElementChild) scroller.scrollTop = scroller.scrollHeight;
+      else {
+        const box = scroller.getBoundingClientRect();
+        const r = row.getBoundingClientRect();
+        scroller.scrollTop += r.top + r.height / 2 - (box.top + box.height / 2);
+      }
+      inView = active;
     },
     focusSearch() {
       input.focus();

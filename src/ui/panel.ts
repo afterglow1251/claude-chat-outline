@@ -294,6 +294,8 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     state.collapsed = collapsed;
     storageSet({ collapsed });
     apply();
+    // While collapsed the list couldn't follow the chat: catch up.
+    if (!collapsed) questions.revealActive();
     if (!focusAfter) return;
     if (collapsed) {
       const back = state.returnFocus;
