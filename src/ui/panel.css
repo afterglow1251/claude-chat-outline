@@ -39,7 +39,8 @@
 }
 
 .panel,
-.tab {
+.tab,
+.seeking {
   font:
     13px/1.4 ui-sans-serif,
     system-ui,
@@ -459,6 +460,40 @@ li:has(:focus-visible) .star,
 :host([data-theme='dark']) .highlight {
   background: rgba(217, 119, 87, 0.1);
   box-shadow: inset 0 0 0 2px rgba(217, 119, 87, 0.85);
+}
+
+/* While a jump waits for claude.ai to load earlier messages. */
+.seeking {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--co-bg);
+  border: 1px solid var(--co-border);
+  box-shadow: var(--co-shadow);
+  color: var(--co-muted);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, -6px);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.25s ease-out;
+}
+
+.seeking.in {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.seeking-spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--co-border);
+  border-top-color: var(--co-accent);
+  animation: co-spin 0.8s linear infinite;
 }
 
 /* ----- collapsed tab ---------------------------------------------------- */

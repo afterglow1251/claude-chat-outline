@@ -146,6 +146,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
     if (seekController) seekController.abort();
     seekController = null;
     seekingUp = false;
+    view.seeking(false);
   }
 
   function onUserScroll(e: Event) {
@@ -191,12 +192,16 @@ export function createSeeker(ctx: SeekContext): Seeker {
     const firstMounted = items.findIndex((e) => mounted(e));
     seekingUp = !mounted(entry) && (firstMounted === -1 || index < firstMounted);
     seekLog('jump', { index, pos: entry.pos, label: entry.label.slice(0, 30), up: seekingUp });
+    // Going up to a question not on the page: claude.ai has to load earlier
+    // messages first, which can take a while in a long chat.
+    if (seekingUp) view.seeking(true, isDocScroller(container) ? null : container);
     const landing = await seek(entry, theFeed, container, controller.signal);
     seekLog('landing', { found: !!landing, aborted: controller.signal.aborted });
     if (landing) await settleOn(entry, container, landing.scrolled, controller.signal);
     // A newer click owns the pin now; a user scroll has released it already.
     if (seekController !== controller) return;
     seekController = null;
+    view.seeking(false);
     seekingUp = false; // the wheel may still be turning: no longer a cancel, but no longer ours either
     if (landing) {
       // The highlight asks for the message on every frame: claude.ai may

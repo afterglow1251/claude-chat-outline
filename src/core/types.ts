@@ -81,4 +81,9 @@ export interface View {
    * loads a chat's history only so far back): show its text in the panel.
    */
   unreachable(index: number): void;
+  /**
+   * A jump is waiting for claude.ai to load earlier messages: say so over
+   * the chat (`clip`, its scroller; null: the viewport), or stop saying so.
+   */
+  seeking(on: boolean, clip?: Element | null): void;
 }

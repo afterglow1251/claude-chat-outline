@@ -5,6 +5,7 @@
 import { h, icon } from '../core/dom';
 import { HOST_ID } from '../core/events';
 import { createHighlighter } from './highlight';
+import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import * as S from '../core/selectors';
 import type { LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
@@ -258,6 +259,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
   // Below the panel and the tab: the highlight is drawn over the chat, never over the outline.
   const highlights = h('div', { className: 'highlights' });
   const highlighter = createHighlighter(highlights);
+  const seekingPill = createSeekingPill(highlights);
   shadow.append(highlights, panel, tab);
   panel.style.setProperty('--co-top', `${S.layout.panelTop}px`);
   tab.style.setProperty('--co-top', `${S.layout.panelTop}px`);
@@ -501,6 +503,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     highlight: (target, clip) => highlighter.show(target, clip),
     setLoadState,
     unreachable: (index) => questions.expand(index),
+    seeking: (on, clip = null) => (on ? seekingPill.show(clip) : seekingPill.hide()),
     setConversation: (convId) => questions.setConversation(convId),
     setVisible(visible) {
       state.visible = visible;
@@ -509,6 +512,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     reset() {
       clearTimeout(noticeTimer);
       highlighter.clear();
+      seekingPill.hide();
       state.loading = null;
       state.notice = '';
       state.status = 'no-feed';
@@ -518,6 +522,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     },
     destroy() {
       highlighter.clear();
+      seekingPill.hide();
       cleanups.forEach((fn) => fn());
       themeObserver.disconnect();
       state.visible = false;
