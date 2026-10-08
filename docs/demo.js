@@ -445,8 +445,6 @@
   const playBtn = player.querySelector('[data-act="play"]');
   const segsBox = player.querySelector('[data-segs]');
   const caption = player.querySelector('[data-caption]');
-  const captionN = player.querySelector('[data-caption-n]');
-  const captionT = player.querySelector('[data-caption-t]');
 
   // One segment per chapter, as wide as the chapter is long.
   segsBox.innerHTML = CHAPTERS.map(
@@ -461,18 +459,9 @@
   let last = 0;
   let scrubbing = false;
   let shownChapter = -1;
-  let captionTimer;
 
   function showCaption(ci) {
-    const put = () => {
-      captionN.textContent = `${String(ci + 1).padStart(2, '0')}/${String(CHAPTERS.length).padStart(2, '0')}`;
-      captionT.textContent = CHAPTERS[ci].title;
-      caption.classList.remove('swap');
-    };
-    clearTimeout(captionTimer);
-    if (shownChapter === -1) return put();
-    caption.classList.add('swap');
-    captionTimer = setTimeout(put, 180);
+    caption.textContent = CHAPTERS[ci].title;
   }
 
   function paint(smooth) {

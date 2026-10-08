@@ -149,58 +149,46 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 /* Controls live on the stage: a caption top left, and at the bottom a
    glass pill (prev, play, next) over a segmented bar, one segment per
    chapter. While playing they show on hover; paused, they stay. */
-.ov-caption {
-  position: absolute; left: 84px; top: 5px; z-index: 4; pointer-events: none;
-  display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border-radius: 999px;
-  background: rgba(20, 20, 19, 0.78); color: #fff; font-size: 12.5px; font-weight: 500;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  transition: opacity 0.35s var(--out), transform 0.35s var(--out);
-}
-.ov-caption.swap { opacity: 0; transform: translateY(-4px); }
-.ov-n { font: 500 11px var(--mono); padding: 2px 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); }
+.demo-caption { margin-top: 14px; text-align: center; font-size: 15px; font-weight: 500; color: var(--muted); }
 
 .ov-bottom {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 40px 16px 12px;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 0 16px 12px;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
-  background: linear-gradient(transparent, rgba(20, 20, 19, 0.42));
-  opacity: 0; transition: opacity 0.3s var(--out);
+  transform: translateY(calc(100% + 4px)); transition: transform 0.45s var(--out);
 }
-.stage-box:hover .ov-bottom, .ov-bottom:focus-within, .player.paused .ov-bottom { opacity: 1; }
-@media (hover: none) { .ov-bottom { opacity: 1; } }
+.stage-box:hover .ov-bottom, .ov-bottom:focus-within, .player.paused .ov-bottom { transform: none; }
+@media (hover: none) { .ov-bottom { transform: none; } }
 
+/* Solid, so its colour never changes as it slides in. */
 .ov-controls {
   display: flex; align-items: center; gap: 4px; padding: 5px; border-radius: 999px;
-  background: rgba(20, 20, 19, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  transform: translateY(6px); transition: transform 0.4s var(--spring);
+  background: #ffffff; border: 1px solid rgba(31, 30, 29, 0.12); box-shadow: 0 6px 20px rgba(31, 30, 29, 0.14);
 }
-.stage-box:hover .ov-controls, .ov-bottom:focus-within .ov-controls, .player.paused .ov-controls { transform: none; }
 .ctl {
-  width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; color: #fff;
+  width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; color: #3d3929;
   display: grid; place-items: center; cursor: pointer; flex: none;
   transition: background 0.2s, transform 0.35s var(--spring);
 }
-.ctl:hover, .ctl:focus-visible { background: rgba(255, 255, 255, 0.14); }
+.ctl:hover, .ctl:focus-visible { background: rgba(31, 30, 29, 0.07); }
 .ctl:focus-visible { outline: none; }
-.ctl-play:focus-visible { background: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.25); }
+.ctl-play:focus-visible { background: #e8e5db; }
 .ctl:active { transform: scale(0.88); }
 .ctl svg { width: 15px; height: 15px; }
-.ctl-play { width: 42px; height: 42px; background: #fff; color: #141413; }
-.ctl-play:hover { background: #fff; }
+.ctl-play { width: 42px; height: 42px; background: #f0eee6; color: #3d3929; }
+.ctl-play:hover { background: #e8e5db; }
 .ctl-play .i-play { display: none; }
 .player.paused .ctl-play .i-play { display: block; }
 .player.paused .ctl-play .i-pause { display: none; }
 
 .ov-scrub { position: relative; width: 100%; height: 14px; }
 .ov-segs { position: absolute; left: 0; right: 0; top: 5px; display: flex; gap: 4px; pointer-events: none; }
-.ov-seg { position: relative; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.3); overflow: hidden; transition: transform 0.25s var(--out); }
-.ov-seg i { position: absolute; inset: 0; width: 0; background: #fff; }
-.ov-seg.now i { background: var(--accent); }
+.ov-seg { position: relative; height: 4px; border-radius: 2px; background: rgba(128, 128, 128, 0.35); overflow: hidden; transition: transform 0.25s var(--out); }
+.ov-seg i { position: absolute; inset: 0; width: 0; background: var(--accent); }
 .ov-scrub:hover .ov-seg { transform: scaleY(1.6); }
 .ov-scrub input {
-  position: absolute; inset: -6px 0; width: 100%; height: calc(100% + 12px); margin: 0; opacity: 0; cursor: pointer;
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer;
 }
-.ov-scrub input:focus-visible + * { outline: none; }
-.ov-scrub:has(input:focus-visible) .ov-segs { outline: 2px solid rgba(255, 255, 255, 0.35); outline-offset: 4px; border-radius: 4px; }
+.ov-scrub input:focus, .ov-scrub input:focus-visible { outline: none; }
 
 /* ---------------------------------------------------------------------------
    Sections
@@ -351,9 +339,7 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
   .grid, .steps { grid-template-columns: 1fr; }
   .privacy { grid-template-columns: 1fr; padding: 28px; gap: 16px; }
   .section { padding-top: 80px; }
-  .ov-caption { top: 2px; left: 40px; padding: 1px 8px 1px 3px; font-size: 10px; gap: 5px; }
-  .ov-n { font-size: 9px; padding: 0 4px; }
-  .ov-bottom { padding: 24px 8px 6px; gap: 6px; }
+  .ov-bottom { padding: 0 8px 6px; gap: 6px; }
   .ctl { width: 30px; height: 30px; }
   .ctl-play { width: 34px; height: 34px; }
 }
