@@ -32,10 +32,12 @@ export interface ActiveTracker {
 
 // The active item is the last question whose top is at or above the
 // "line" (scroller top + scrollOffset). Rendered questions decide it: the
-// rendered turns always cover the viewport, so if the first rendered
-// question is below the line, the one before it (unmounted, above) is the
-// active one. Remembered offsets are only used when no question is
-// rendered at all (deep inside a very long answer).
+// rendered turns usually cover the viewport, so if the first rendered
+// question is below the line but on screen, the one before it (unmounted,
+// above) is the active one. With no rendered question on screen (deep
+// inside a very long answer, or fast scrolling while claude.ai has dropped
+// the turns around the reader) the marked one stays; remembered offsets
+// only place the first mark.
 export function createActiveTracker(
   container: Element,
   getFeed: () => HTMLElement | null,
@@ -46,6 +48,7 @@ export function createActiveTracker(
   let targets: Entry[] = [];
   let current: number | undefined;
   let pinned: number | null = null;
+  let lastEntry: Entry | undefined;
   let frame = 0;
   let fallback: ReturnType<typeof setTimeout> | undefined;
 
@@ -65,13 +68,23 @@ export function createActiveTracker(
       lastMounted = i;
       if (top <= line) lastAbove = i;
     });
+    const bottom = isDoc ? window.innerHeight : container.getBoundingClientRect().bottom;
+    // Scrolling fast through a long chat, claude.ai drops every turn but
+    // the last for a moment; then what is rendered no longer covers the
+    // viewport, and the turn before it is not where the reader is.
+    const covered = firstMounted !== -1 && tops.get(firstMounted)! < bottom;
     let active: number;
     if (lastAbove !== -1) active = lastAbove;
-    else if (firstMounted !== -1) active = Math.max(0, firstMounted - 1);
+    else if (covered) active = Math.max(0, firstMounted - 1);
     else {
-      // No question rendered: go by where they were last seen. With nothing
-      // seen yet (a chat that is still loading) nothing is marked, rather
-      // than a guess that jumps once the chat appears.
+      // No question on screen. Once one has been marked, keep it: offsets
+      // seen before claude.ai loaded or dropped turns above are stale, and
+      // while it remounts turns (fast scrolling) any guess flickers.
+      const held = heldIndex();
+      if (held !== -1) return emit(held);
+      // First paint deep inside a long answer: go by where questions were
+      // last seen. With nothing seen yet (a chat still loading) nothing is
+      // marked, rather than a guess that jumps once the chat appears.
       const feed = getFeed();
       const feedTop = feed ? feed.getBoundingClientRect().top : 0;
       active = -1;
@@ -84,7 +97,6 @@ export function createActiveTracker(
     // reach the line, so clicking it would never mark it active. There,
     // prefer the last question that is actually visible.
     if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) {
-      const bottom = isDoc ? window.innerHeight : container.getBoundingClientRect().bottom;
       for (let i = lastMounted; i > active; i--) {
         if (tops.has(i) && tops.get(i)! < bottom) {
           active = i;
@@ -95,7 +107,17 @@ export function createActiveTracker(
     emit(active);
   }
 
+  // The last marked question, found again in the current list (indexes
+  // shift when questions are added, and the list is rebuilt often).
+  function heldIndex(): number {
+    if (!lastEntry) return -1;
+    const same = targets.indexOf(lastEntry);
+    if (same !== -1) return same;
+    return lastEntry.key ? targets.findIndex((t) => t.key === lastEntry!.key) : -1;
+  }
+
   function emit(index: number) {
+    if (index >= 0) lastEntry = targets[index];
     if (index === current) return;
     current = index;
     onActive(index);
