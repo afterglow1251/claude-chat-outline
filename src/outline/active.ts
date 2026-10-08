@@ -38,6 +38,11 @@ export interface ActiveTracker {
 // inside a very long answer, or fast scrolling while claude.ai has dropped
 // the turns around the reader) the marked one stays; remembered offsets
 // only place the first mark.
+// How long a jump of more than one question must hold before it is shown.
+// Scrolling fast through a long chat, claude.ai mounts and drops turns for a
+// while, and what is on the page in the meantime can point anywhere.
+const SETTLE_MS = 150;
+
 export function createActiveTracker(
   container: Element,
   getFeed: () => HTMLElement | null,
@@ -49,6 +54,9 @@ export function createActiveTracker(
   let current: number | undefined;
   let pinned: number | null = null;
   let lastEntry: Entry | undefined;
+  let pending = -1; // a far jump waiting to hold for SETTLE_MS
+  let pendingSince = 0;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
   let frame = 0;
   let fallback: ReturnType<typeof setTimeout> | undefined;
 
@@ -104,7 +112,31 @@ export function createActiveTracker(
         }
       }
     }
-    emit(active);
+    settle(active);
+  }
+
+  // A move to the next or previous question (reading) shows at once; a
+  // jump further than that shows once it has held for SETTLE_MS, so fast
+  // scrolling doesn't flash questions the reader never stopped at.
+  function settle(index: number) {
+    const shown = heldIndex();
+    if (shown === -1 || index === -1 || Math.abs(index - shown) <= 1) {
+      pending = -1;
+      clearTimeout(settleTimer);
+      return emit(index);
+    }
+    const now = performance.now();
+    if (index !== pending) {
+      pending = index;
+      pendingSince = now;
+    }
+    if (now - pendingSince >= SETTLE_MS) {
+      pending = -1;
+      return emit(index);
+    }
+    emit(shown);
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(schedule, SETTLE_MS - (now - pendingSince) + 10);
   }
 
   // The last marked question, found again in the current list (indexes
@@ -149,6 +181,8 @@ export function createActiveTracker(
     },
     pin(index) {
       pinned = index;
+      pending = -1;
+      clearTimeout(settleTimer);
       emit(index);
     },
     unpin() {
@@ -159,6 +193,7 @@ export function createActiveTracker(
     destroy() {
       if (frame) cancelAnimationFrame(frame);
       clearTimeout(fallback);
+      clearTimeout(settleTimer);
       scrollTarget.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     },
