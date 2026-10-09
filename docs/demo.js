@@ -154,6 +154,7 @@
       click: undefined,
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
       diagrams: false, // the panel shows the Diagrams view
+      strip: false, // the view switcher is open (the pointer is on it)
       previews: 0, // the diagrams' previews: 0 shimmering to 1 drawn
       dHover: -1, // the diagram row under the cursor
       toDiagram: null, // { index, p }: the chat scrolling to diagram `index` (p: 0 to 1)
@@ -283,14 +284,16 @@
     }
 
     if (id === 'diagrams') {
-      // Open the Diagrams view, watch the previews draw, jump to one.
+      // Point at the view icon: the views spring out of it. Pick Diagrams,
+      // watch the previews draw, jump to one.
       s.stars = [4, 8];
       s.dark = true;
       s.chatPos = 9;
       s.active = 9;
-      const open = 1.4;
+      const open = 1.5;
       const pick = 3.9;
-      s.cursor = cursorPath(t, [[0, 'chat'], [1.2, 'dbtn'], [2.7, 'dbtn'], [3.6, 'drow:1']]);
+      s.cursor = cursorPath(t, [[0, 'chat'], [1.0, 'views'], [1.3, 'vopt:1'], [2.7, 'vopt:1'], [3.6, 'drow:1']]);
+      s.strip = t >= 0.95 && t < 2.85;
       s.click = clickAt(t, [open, pick]);
       s.diagrams = t >= open;
       s.previews = out(seg(t, open + 0.8, open + 1.2));
@@ -378,7 +381,13 @@
 
       <div class="s-panel">
         <div class="s-ph"><b>Questions</b><span>${N}</span>
-          <i class="s-ic s-dbtn"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z"/></svg></i>
+          <span class="s-views">${[
+            'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+            'M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z',
+            'M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16',
+          ]
+            .map((d, k) => `<i class="s-vopt" style="--i:${2 - k}"><svg viewBox="0 0 24 24"><path d="${d}"/></svg></i>`)
+            .join('')}</span>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></i>
         </div>
@@ -427,7 +436,8 @@
   const windowEl = $('.s-window');
   const empty = $('.s-empty');
   const heading = $('.s-ph b');
-  const dBtn = $('.s-dbtn');
+  const views = $('.s-views');
+  const vopts = [...stage.querySelectorAll('.s-vopt')];
   const dRows = [...stage.querySelectorAll('.s-dlist li')];
   const dShimmers = [...stage.querySelectorAll('.s-shimmer')];
   const dPreviews = dRows.map((r) => r.querySelector('svg'));
@@ -456,9 +466,10 @@
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
-    if (name === 'dbtn') return pointOf(dBtn, 0.5, 0.55);
+    if (name === 'views') return pointOf(vopts.find((el) => el.classList.contains('on')) || vopts[0], 0.5, 0.55);
     const [kind, i] = name.split(':');
     if (kind === 'drow') return pointOf(dRows[+i].firstChild, 0.45, 0.55);
+    if (kind === 'vopt') return pointOf(vopts[+i], 0.5, 0.55);
     const row = rows[+i];
     if (kind === 'item') return pointOf(row.querySelector('.s-label'), 0.3, 0.6);
     if (kind === 'star') return pointOf(row.querySelector('.s-star'), 0.5, 0.55);
@@ -516,7 +527,9 @@
     // Questions or Diagrams in the panel. Previews shimmer, then the
     // drawing fades in over the shimmer, like the extension's.
     panel.classList.toggle('dview', s.diagrams);
-    dBtn.classList.toggle('on', s.diagrams);
+    // The view switcher: the current view's icon, or all of them while pointed at.
+    views.classList.toggle('open', !!s.strip);
+    vopts.forEach((el, k) => el.classList.toggle('on', k === (s.diagrams ? 1 : 0)));
     heading.textContent = s.diagrams ? 'Diagrams' : 'Questions';
     count.textContent = s.diagrams ? DRAWN.length : N;
     const pulse = 0.8 + 0.2 * Math.cos((local / 1.6) * 2 * Math.PI);
