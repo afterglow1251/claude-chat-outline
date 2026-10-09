@@ -47,7 +47,6 @@ export interface QuestionList {
    * becomes visible again (it can't follow the chat while hidden).
    */
   revealActive(): void;
-  focusSearch(): void;
 }
 
 export function createQuestionList({ onSelect }: { onSelect(index: number): void }): QuestionList {
@@ -308,7 +307,9 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     }
     const shown = visibleItems();
     const i = shown.indexOf(current);
-    const next = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: shown.length - 1 }[e.key];
+    // Cmd+↑/↓ (Ctrl off the Mac): the first or last question.
+    const far = e.metaKey || e.ctrlKey;
+    const next = { ArrowDown: far ? shown.length - 1 : i + 1, ArrowUp: far ? 0 : i - 1 }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     e.stopPropagation();
@@ -333,7 +334,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       e.preventDefault();
       shown[0].click();
     } else if (e.key === 'Escape' && input.value) {
-      // First Esc clears the filter; the next one collapses the panel.
+      // Esc clears the filter.
       e.preventDefault();
       e.stopPropagation();
       input.value = '';
@@ -441,10 +442,6 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
         scroller.scrollTop += r.top + r.height / 2 - (box.top + box.height / 2);
       }
       inView = active;
-    },
-    focusSearch() {
-      input.focus();
-      input.select();
     },
   };
 }

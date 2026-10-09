@@ -226,7 +226,7 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       className: 'icon-btn',
       'aria-label': 'Collapse outline',
       'aria-expanded': 'true',
-      title: 'Collapse (Esc)',
+      title: 'Collapse (Cmd/Ctrl+Shift+O)',
     },
     [icon(ICONS.collapse)]
   );
@@ -407,22 +407,6 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       if (e.composedPath()[0] instanceof HTMLInputElement) e.stopPropagation();
     });
   }
-
-  // Esc inside the panel collapses it. Propagation is stopped so Claude's
-  // own global Esc handling doesn't also fire.
-  listen<KeyboardEvent>(shadow, 'keydown', (e) => {
-    // "/" anywhere in the panel (outside the filter field) starts filtering.
-    if (e.key === '/' && !(e.target instanceof HTMLInputElement)) {
-      e.preventDefault();
-      e.stopPropagation();
-      questions.focusSearch();
-      return;
-    }
-    if (e.key !== 'Escape' || state.collapsed) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setCollapsed(true, true);
-  });
 
   // Capture phase on window so we see the shortcut before Claude's handlers.
   listen<KeyboardEvent>(

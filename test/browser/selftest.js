@@ -384,8 +384,10 @@
     items()[0].focus();
     key(items()[0], { key: 'ArrowDown' });
     check(root().activeElement === items()[1], 'ArrowDown moves focus to next bullet');
-    key(items()[1], { key: 'End' });
-    check(root().activeElement === items()[items().length - 1], 'End moves focus to last bullet');
+    key(items()[1], { key: 'ArrowDown', metaKey: true });
+    check(root().activeElement === items()[items().length - 1], 'Cmd+ArrowDown moves focus to last bullet');
+    key(root().activeElement, { key: 'ArrowUp', ctrlKey: true });
+    check(root().activeElement === items()[0], 'Ctrl+ArrowUp moves focus to first bullet');
     check(items().filter((b) => b.tabIndex === 0).length === 1, 'roving tabindex: exactly one tabbable bullet');
 
     // ---- streaming updates without flicker --------------------------------
@@ -441,7 +443,7 @@
     history.back(); // popstate -> chat B
     check(await waitFor(() => visible() && labels()[0] && labels()[0].startsWith('Beta'), 3000), 'popstate back to chat shows panel again');
 
-    // ---- collapse / persistence / shortcut / Esc ---------------------------
+    // ---- collapse / persistence / shortcut ---------------------------------
     root().querySelector('.header .icon-btn[aria-label="Collapse outline"]').click();
     check(root().querySelector('.panel').hidden && !root().querySelector('.tab').hidden, 'collapse -> thin tab');
     check(JSON.parse(localStorage.getItem('co-store')).collapsed === true, 'collapsed persisted to storage');
@@ -450,8 +452,8 @@
     key(document.body, { key: 'O', code: 'KeyO', ctrlKey: true, shiftKey: true });
     check(!root().querySelector('.panel').hidden, 'Ctrl+Shift+O expands');
     check(root().activeElement && root().activeElement.closest('.list'), 'expanding via shortcut moves focus into the list');
-    key(root().activeElement, { key: 'Escape' });
-    check(root().querySelector('.panel').hidden, 'Esc collapses when focused');
+    key(document.body, { key: 'O', code: 'KeyO', ctrlKey: true, shiftKey: true });
+    check(root().querySelector('.panel').hidden, 'Ctrl+Shift+O collapses again');
     root().querySelector('.tab').click();
 
     // ---- resize -----------------------------------------------------------
