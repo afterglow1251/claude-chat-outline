@@ -1065,14 +1065,9 @@ li:has(:focus-visible) .star,
   color: var(--co-fg);
 }
 
-.tab-label,
-.tab-count {
+.tab-label {
   writing-mode: vertical-rl;
   font-size: 12px;
-}
-
-.tab-count {
-  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {

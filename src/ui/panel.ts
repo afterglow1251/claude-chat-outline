@@ -382,7 +382,6 @@ export function createPanel({
       starred.element,
     ]),
   ]);
-  const tabCount = h('span', { className: 'tab-count' });
   const tab = h(
     'button',
     {
@@ -392,7 +391,7 @@ export function createPanel({
       'aria-expanded': 'false',
       title: 'Show outline (Cmd/Ctrl+Shift+O). Cmd/Ctrl+Shift+↑/↓: previous/next question',
     },
-    [icon(ICONS.expand), h('span', { className: 'tab-label' }, ['Outline']), tabCount]
+    [icon(ICONS.expand), h('span', { className: 'tab-label' }, ['Outline'])]
   );
   // Below the panel and the tab: the highlight is drawn over the chat, never over the outline.
   const highlights = h('div', { className: 'highlights' });
@@ -540,9 +539,8 @@ export function createPanel({
     starred.setQuestions(result.items);
     const n = result.items.length;
     const more = state.incomplete ? '+' : '';
-    tabCount.textContent = pending ? '' : `${n}${more}`;
     state.questionCount = {
-      text: tabCount.textContent,
+      text: pending ? '' : `${n}${more}`,
       label: more ? `${n} questions listed, more not loaded yet` : `${n} questions`,
     };
     renderCount();
@@ -757,7 +755,6 @@ export function createPanel({
       state.status = 'no-feed';
       state.canLoadEarlier = state.incomplete = false;
       state.questionCount = { text: '', label: '0 questions' };
-      tabCount.textContent = '';
       renderCount();
       renderStatus();
     },

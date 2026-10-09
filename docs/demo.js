@@ -404,7 +404,7 @@
           ).join('')}
         </ol>
       </div>
-      <div class="s-tab"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg><span>Outline</span><span class="s-tab-n">${N}</span></div>
+      <div class="s-tab"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg><span>Outline</span></div>
 
       <div class="s-keys"><kbd>${isMac ? '⌘' : 'Ctrl'}</kbd><kbd>⇧</kbd><kbd>O</kbd></div>
       <div class="s-cursor"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6.2 1.5L9.6 19z"/></svg><span class="s-ripple"></span></div>
