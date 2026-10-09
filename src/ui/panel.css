@@ -479,6 +479,7 @@ li:has(:focus-visible) .star,
 
 /* Always light: Claude draws SVG artifacts for a light page, often in plain black. */
 .thumb-box {
+  position: relative;
   height: 120px;
   padding: 8px;
   background: #ffffff;
@@ -493,11 +494,59 @@ li:has(:focus-visible) .star,
   object-fit: contain;
 }
 
+/* Appearing: the box has its place from the start and shimmers until the
+   drawing is ready, which then fades in (opacity only). A box whose size
+   was a guess eases to the real one. */
+.thumb-box::before,
+.live-box::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 4px;
+  background: var(--co-hover);
+  animation: co-shimmer 1.2s ease-in-out infinite;
+}
+
+.thumb-box[data-ready]::before,
+.live-box[data-ready]::before {
+  display: none;
+}
+
+.thumb,
+.live-box iframe {
+  opacity: 0;
+}
+
+.thumb-box[data-ready] .thumb,
+.live-box[data-ready] iframe {
+  animation: co-reveal 220ms ease-out both;
+}
+
+@keyframes co-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes co-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* A live preview, laid out 680px wide (claude.ai's chat column) and scaled
    to the panel; --h is its height at that width. */
 .live-box {
   position: relative;
   height: min(260px, calc(var(--h, 400px) * var(--co-scale, 0.4)));
+  transition: height 220ms ease-out;
   overflow: hidden;
   background: var(--co-bg);
   border: 1px solid var(--co-border);
@@ -729,5 +778,21 @@ li:has(:focus-visible) .star,
 @media (prefers-reduced-motion: reduce) {
   .status.loading::before {
     animation-duration: 2.4s;
+  }
+
+  .thumb-box::before,
+  .live-box::before,
+  .thumb-box[data-ready] .thumb,
+  .live-box[data-ready] iframe {
+    animation: none;
+  }
+
+  .thumb-box[data-ready] .thumb,
+  .live-box[data-ready] iframe {
+    opacity: 1;
+  }
+
+  .live-box {
+    transition: none;
   }
 }

@@ -29,6 +29,9 @@ const RENDER_WIDTH = 680;
 const RENDER_MAX_HEIGHT = 2000;
 const HEIGHT_GUESS = 400; // until the preview reports its own
 const MOUNT_MARGIN = '200px 0px'; // started a little before they scroll in
+// Shown by then even if it never says how tall it is (a page whose own
+// scripts break the report): better a drawing in a guessed box than none.
+const READY_FALLBACK_MS = 1500;
 // Diagrams this tab has already received, by conversation (most recent
 // last): shown at once on coming back, while they are asked for again.
 const KNOWN_MAX_CHATS = 20;
@@ -69,6 +72,18 @@ const same = (a: readonly Diagram[], b: readonly Diagram[]) =>
 
 const setHeight = (box: HTMLElement, height: number) => box.style.setProperty('--h', `${height}px`);
 
+// A visual that is one SVG filling the width: its height is known before it
+// is drawn, from its viewBox, so its box has its final size from the start.
+function svgHeight(d: Diagram): number | null {
+  if (d.kind !== 'widget' || !d.source.trimStart().startsWith('<svg')) return null;
+  const open = /<svg\b[^>]*>/.exec(d.source)?.[0] ?? '';
+  const width = /\swidth\s*=\s*["']([^"']*)["']/.exec(open)?.[1];
+  const box = /\sviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(open);
+  if (!box || (width && width !== '100%')) return null;
+  const ratio = Number(box[2]) / Number(box[1]);
+  return Number.isFinite(ratio) && ratio > 0 ? Math.round(RENDER_WIDTH * ratio) : null;
+}
+
 const isLive = (kind: DiagramKind): kind is PreviewMessage['kind'] =>
   kind === 'widget' || kind === 'html' || kind === 'mermaid';
 
@@ -99,6 +114,7 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     urls.push(url);
     const img = h('img', { className: 'thumb', src: url, alt: '', decoding: 'async', loading: 'lazy' });
     const box = h('div', { className: 'thumb-box', 'aria-hidden': 'true' }, [img]);
+    img.addEventListener('load', () => box.toggleAttribute('data-ready', true));
     img.addEventListener('error', () => box.remove());
     return box;
   }
@@ -120,7 +136,14 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     }
     const frame = h('iframe', { src, sandbox: 'allow-scripts', tabindex: '-1', 'aria-hidden': 'true' });
     const msg: PreviewMessage = { kind: diagram.kind, source: diagram.source, theme: theme() };
-    frame.addEventListener('load', () => frame.contentWindow?.postMessage(msg, '*'), { once: true });
+    frame.addEventListener(
+      'load',
+      () => {
+        frame.contentWindow?.postMessage(msg, '*');
+        setTimeout(() => frame.isConnected && box.toggleAttribute('data-ready', true), READY_FALLBACK_MS);
+      },
+      { once: true }
+    );
     box.append(frame);
     if (frame.contentWindow) frames.set(frame.contentWindow, box);
     updateScale();
@@ -131,6 +154,7 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     if (!frame) return;
     if (frame.contentWindow) frames.delete(frame.contentWindow);
     frame.remove();
+    box.removeAttribute('data-ready');
   }
 
   // Started and stopped as rows come and go, and all stopped while the
@@ -154,6 +178,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     const clamped = Math.min(Math.round(height), RENDER_MAX_HEIGHT);
     heights.set(diagram, clamped);
     setHeight(box, clamped);
+    // Drawn: the shimmer gives way to the drawing.
+    box.toggleAttribute('data-ready', true);
   }
   window.addEventListener('message', onMessage);
 
@@ -164,7 +190,7 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     if (d.kind === 'svg') preview = thumbnail(d.source);
     else if (isLive(d.kind)) {
       preview = h('div', { className: 'live-box', 'aria-hidden': 'true' });
-      setHeight(preview, heights.get(d) ?? HEIGHT_GUESS);
+      setHeight(preview, heights.get(d) ?? svgHeight(d) ?? HEIGHT_GUESS);
       live.set(preview, d);
       visibility.observe(preview);
     }
