@@ -15,7 +15,7 @@ import * as S from '../core/selectors';
 import * as Sources from '../data/sources';
 import { LOCATION_EVENT } from '../core/events';
 import { watchConversations } from '../data/intercept';
-import type { ApiQuestion, Entry, View } from '../core/types';
+import type { ApiQuestion, DiagramFinder, Entry, View } from '../core/types';
 import { LOG, safe, warnOnce } from '../core/util';
 import { createActiveTracker, mounted, type ActiveTracker } from './active';
 import {
@@ -29,6 +29,7 @@ import {
 } from './extract';
 import { createCoverage, createLedger } from './ledger';
 import { createLoader } from './load-all';
+import { createPlace } from './place';
 import { createResume } from './resume';
 import { containerTop, findScrollContainer, isDocScroller } from './scroll';
 import { createSeeker, seekLog } from './seek';
@@ -41,9 +42,21 @@ const REBUILD_MAX_WAIT_MS = 1000;
 const CACHE_WAIT_MS = 500;
 const SAVE_DELAY_MS = 1000;
 const API_MIN_INTERVAL_MS = 4000;
+// Complete lists this tab has already received, by conversation (most
+// recent last): going back to a chat shows its list at once instead of
+// waiting for claude.ai to send the whole conversation again.
+const KNOWN_MAX_CHATS = 20;
+const known = new Map<string, readonly ApiQuestion[]>();
 // Stepping up from a question scrolled further than this above the line
 // goes back to that question's own start first.
 const STEP_INSIDE_PX = 16;
+// Where you left off in each chat: turned off, stars cover marking a
+// place on purpose. Two versions are kept: an offer over the chat
+// (resume.ts; came up on every reload and after every jump) and a ribbon
+// in the question list (place.ts; easy to miss in a long chat). Set one
+// to true to bring it back.
+const RESUME_ENABLED = false;
+const PLACE_ENABLED = false;
 
 // ---------------------------------------------------------------------------
 // Session: everything that lives for one conversation. convId is the
@@ -54,7 +67,7 @@ const STEP_INSIDE_PX = 16;
 // Shared with debugReport().
 const debugState = {
   convId: null as string | null,
-  source: 'none' as 'none' | 'page' | 'cache' | 'api' | 'claude.ai response',
+  source: 'none' as 'none' | 'page' | 'cache' | 'memory' | 'api' | 'claude.ai response',
   api: 'not tried',
   questions: 0,
   rendered: 0,
@@ -63,7 +76,8 @@ const debugState = {
 export interface Session {
   start(): Promise<void>;
   stop(): void;
-  scrollTo(index: number): Promise<void>;
+  /** Jumps to a question, or on to a diagram in its answer (see Seeker.scrollTo). */
+  scrollTo(index: number, diagram?: DiagramFinder): Promise<void>;
   /** Jumps to the next (1) or previous (-1) question from the one being read. */
   step(delta: 1 | -1): void;
   /** Takes the offer to go back to where you were (an index), or dismisses it (null). */
@@ -103,6 +117,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
   let acquireFrame = 0;
   let complete = false; // the list is known to be complete
+  let fresh = false; // the list came from claude.ai during this session
   let apiState: 'idle' | 'loading' | 'ok' | 'failed' = 'idle';
   let apiLast = 0;
   let apiTimer: ReturnType<typeof setTimeout> | undefined;
@@ -112,7 +127,8 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   const coverage = createCoverage();
   const ledger = createLedger();
   const cache = convId ? Sources.createCache(convId) : null;
-  const resume = convId ? createResume(convId, view) : null;
+  const resume = convId && RESUME_ENABLED ? createResume(convId, view) : null;
+  const place = convId && PLACE_ENABLED && !RESUME_ENABLED ? createPlace(convId, view) : null;
   let unlistenUserScroll: (() => void) | null = null;
   const seeker = createSeeker({
     view,
@@ -146,7 +162,15 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     unwatchConversations = watchConversations((payload) => {
       if (payload.convId === convId && !stopped) applyQuestions(payload.questions, 'claude.ai response');
     });
-    // 1. What we remembered from an earlier visit: shown immediately.
+    // 1. The complete list from an earlier visit in this tab: final at
+    // once. Still asked for again below, in the background.
+    const remembered = convId ? known.get(convId) : undefined;
+    if (remembered) {
+      ledger.setAuthoritative(remembered);
+      complete = true;
+      debugState.source = 'memory';
+    }
+    // 2. What we remembered from an earlier visit: shown immediately.
     if (cache) {
       const record = await Promise.race([
         cache.load(),
@@ -160,7 +184,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
         debugState.source = 'cache';
       }
     }
-    // 2. What is rendered.
+    // 3. What is rendered.
     // Claude may replace the feed node (e.g. when switching chats). This
     // observer only does an O(1) isConnected check per batch while the
     // feed is healthy, and re-queries for it once it is gone.
@@ -180,9 +204,9 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     // A real scroll by the user ends any programmatic seek.
     unlistenUserScroll = seeker.listen();
     acquireFeed();
-    // 3. Our own request to claude.ai's API, unless claude.ai's response
+    // 4. Our own request to claude.ai's API, unless claude.ai's response
     // already gave us the list.
-    if (!ledger.isAuthoritative()) refreshFromApi();
+    if (!fresh) refreshFromApi();
   }
 
   function acquireFeed() {
@@ -278,6 +302,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     view.setActive(index);
     const container = tracker?.container;
     resume?.update(items, index, settled, container && !isDocScroller(container) ? container : null);
+    place?.update(items, index, settled);
   }
 
   // From the question being read (or the one a running jump goes to, so
@@ -292,6 +317,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     else if (delta < 0 && jumping === null && tracker && scrolledInto(items[from], tracker.container)) to = from;
     if (to < 0 || to >= items.length) return;
     resume?.done();
+    place?.chose(items[to]);
     seeker.scrollTo(to);
   }
 
@@ -347,7 +373,12 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     if (!texts.length && items.length) return false;
     debugState.source = source;
     ledger.setAuthoritative(texts);
-    complete = true;
+    complete = fresh = true;
+    if (convId) {
+      known.delete(convId);
+      known.set(convId, texts);
+      if (known.size > KNOWN_MAX_CHATS) known.delete(known.keys().next().value!);
+    }
     rebuild();
     saveNow();
     return true;
@@ -367,6 +398,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   function stop() {
     if (saveTimer) saveNow();
     resume?.stop();
+    place?.stop();
     stopped = true;
     loader.cancel();
     seeker.cancel();
@@ -391,11 +423,17 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   return {
     start,
     stop,
-    scrollTo: seeker.scrollTo,
+    scrollTo(index, diagram) {
+      place?.chose(items[index]);
+      return seeker.scrollTo(index, diagram);
+    },
     step,
     resume(index) {
       resume?.done();
-      if (index !== null) seeker.scrollTo(index);
+      if (index !== null) {
+        place?.chose(items[index]);
+        seeker.scrollTo(index);
+      }
     },
     loadAll: loader.loadAll,
     cancelLoad: loader.cancel,

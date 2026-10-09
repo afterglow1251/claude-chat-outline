@@ -19,6 +19,32 @@ export interface ApiQuestion {
   pos: number;
 }
 
+/** `widget`: drawn inline in the chat by Claude's visualizer (HTML or SVG). */
+export type DiagramKind = 'svg' | 'mermaid' | 'html' | 'react' | 'widget';
+
+/** A diagram Claude made in its answer, from claude.ai's API. */
+export interface Diagram {
+  kind: DiagramKind;
+  title: string;
+  /** SVG markup, Mermaid text, HTML or JSX, as Claude wrote it. */
+  source: string;
+  /** Index of the question whose answer has it. */
+  question: number;
+}
+
+/** Which diagram of an answer to bring on screen: the `nth` (from 0) with this title. */
+export interface DiagramTarget {
+  kind: DiagramKind;
+  title: string;
+  nth: number;
+}
+
+/**
+ * Finds a diagram in the chat, given the turn of the question it answers
+ * (null while that is not rendered: the diagram found before, if still there).
+ */
+export type DiagramFinder = (questionTurn: HTMLElement | null) => HTMLElement | null;
+
 /** A question rendered in the page right now. */
 export interface RenderedItem {
   target: HTMLElement;
@@ -97,4 +123,6 @@ export interface View {
    * this chat (shown over `clip`, as `seeking`), or take the offer away.
    */
   offerResume(offer: ResumeOffer | null, clip?: Element | null): void;
+  /** Marks the question you left off at (by its matching key) in the list, or clears the mark. */
+  markPlace(key: string | null): void;
 }

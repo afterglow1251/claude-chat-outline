@@ -226,7 +226,8 @@ svg {
 
 /* ----- filter ----------------------------------------------------------- */
 
-.questions {
+.questions,
+.diagrams {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -326,10 +327,36 @@ svg {
 }
 
 .list li {
+  position: relative;
   display: flex;
   flex-wrap: wrap; /* the detail block, when shown, takes a row of its own */
   align-items: flex-start;
   border-radius: 6px;
+}
+
+/* Where you left off (see place.ts): a bookmark ribbon hanging over the
+   row's left edge. It drops in from the row's top once (movement only). */
+.place {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  width: 5px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.place-ribbon {
+  display: block;
+  height: 100%;
+  background: var(--co-accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  animation: co-ribbon 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes co-ribbon {
+  from {
+    transform: translateY(-100%);
+  }
 }
 
 /* The full text of a question claude.ai cannot show. */
@@ -441,6 +468,164 @@ li:has(:focus-visible) .star,
   margin: 0;
   padding: 16px 10px;
   text-align: center;
+  color: var(--co-muted);
+}
+
+/* ----- diagrams (see diagram-list.ts) ---------------------------------- */
+
+.diagram-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A preview (if any) on top, the name under it. The whole row jumps. */
+.diagram-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.diagram-row:hover {
+  background: var(--co-hover);
+}
+
+.diagram {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 4px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+/* Always light: Claude draws SVG artifacts for a light page, often in plain black. */
+.thumb-box {
+  position: relative;
+  height: 120px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Appearing: the box has its place from the start and shimmers until the
+   drawing is complete, which then fades in over the shimmer (opacity only;
+   the drawing has the box's own background, so it covers it as it comes).
+   The shimmer goes once covered. A box whose size was a guess eases to the
+   real one while it still shimmers. */
+.thumb-box::before,
+.live-box::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 4px;
+  background: var(--co-hover);
+  animation: co-shimmer 1.2s ease-in-out infinite;
+}
+
+.thumb-box[data-ready]::before,
+.live-box[data-ready]::before {
+  animation: none;
+  visibility: hidden;
+  transition: visibility 0s 400ms;
+}
+
+.thumb,
+.live-box iframe {
+  position: relative; /* over the shimmer */
+  opacity: 0;
+}
+
+.thumb {
+  background: #ffffff;
+}
+
+.live-box iframe {
+  background: var(--co-bg);
+}
+
+.thumb-box[data-ready] .thumb,
+.live-box[data-ready] iframe {
+  animation: co-reveal 400ms ease-out both;
+}
+
+@keyframes co-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes co-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A live preview, laid out 680px wide (claude.ai's chat column) and scaled
+   to the panel; --h is its height at that width. */
+.live-box {
+  position: relative;
+  height: min(260px, calc(var(--h, 400px) * var(--co-scale, 0.4)));
+  transition: height 220ms ease-out;
+  overflow: hidden;
+  background: var(--co-bg);
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.live-box iframe {
+  display: block;
+  width: 680px;
+  height: var(--h, 400px);
+  border: 0;
+  transform: scale(var(--co-scale, 0.4));
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.diagram-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--co-muted);
+  background: var(--co-input-bg);
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.diagram-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.diagram-title {
+  overflow-wrap: anywhere;
+}
+
+.diagram-meta {
+  font-size: 11px;
   color: var(--co-muted);
 }
 
@@ -632,5 +817,25 @@ li:has(:focus-visible) .star,
 @media (prefers-reduced-motion: reduce) {
   .status.loading::before {
     animation-duration: 2.4s;
+  }
+
+  .thumb-box::before,
+  .live-box::before,
+  .thumb-box[data-ready] .thumb,
+  .live-box[data-ready] iframe {
+    animation: none;
+  }
+
+  .thumb-box[data-ready] .thumb,
+  .live-box[data-ready] iframe {
+    opacity: 1;
+  }
+
+  .live-box {
+    transition: none;
+  }
+
+  .place-ribbon {
+    animation: none;
   }
 }

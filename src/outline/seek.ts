@@ -4,7 +4,7 @@
 // the feed and the ledger; a seeker only reads them and asks for rebuilds.
 import * as S from '../core/selectors';
 import { HOST_ID } from '../core/events';
-import type { Entry, View } from '../core/types';
+import type { DiagramFinder, Entry, View } from '../core/types';
 import { LOG, safe } from '../core/util';
 import { mounted, textConflicts, type ActiveTracker } from './active';
 import { collect, findLoadEarlierButton, keyOf, q } from './extract';
@@ -64,6 +64,9 @@ const SCROLL_END_WAIT_MS = 1500;
 const SETTLE_PASSES = 16;
 const SETTLE_SLACK_PX = 4;
 const SETTLE_WAIT_MS = 150;
+// A jump to a diagram: how long to wait, once at its question, for
+// claude.ai to render the diagram in the answer below.
+const DIAGRAM_WAIT_MS = 1500;
 // Input that means the user is scrolling the chat themselves.
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const;
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
@@ -134,8 +137,11 @@ export interface SeekContext {
 }
 
 export interface Seeker {
-  /** Jumps to the question at `index` of the session's list. */
-  scrollTo(index: number): Promise<void>;
+  /**
+   * Jumps to the question at `index` of the session's list, or, given a
+   * finder, on to that diagram in its answer (the question if not found).
+   */
+  scrollTo(index: number, diagram?: DiagramFinder): Promise<void>;
   /** Ends the running jump, if any. */
   cancel(): void;
   /** Lets a real scroll by the user end the running jump; returns the undo. */
@@ -180,7 +186,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
   // The clicked item is marked active at once and stays so while the page
   // scrolls to it, instead of the highlight running through every question
   // passed on the way. Scroll tracking takes over once the scroll is done.
-  async function scrollTo(index: number): Promise<void> {
+  async function scrollTo(index: number, diagram?: DiagramFinder): Promise<void> {
     const items = ctx.items();
     const entry = items[index];
     if (!entry) return;
@@ -203,7 +209,19 @@ export function createSeeker(ctx: SeekContext): Seeker {
     if (seekingUp) view.seeking(true, isDocScroller(container) ? null : container);
     const landing = await seek(entry, theFeed, container, controller.signal);
     seekLog('landing', { found: !!landing, aborted: controller.signal.aborted });
-    if (landing) await settleOn(entry, container, landing.scrolled, controller.signal);
+    if (landing) await settleOn(() => turnOf(entry), container, landing.scrolled, controller.signal);
+    // On from the question to the diagram in its answer, once it is there.
+    let shown: (() => HTMLElement | null) | null = null;
+    if (landing && diagram && seekController === controller) {
+      // The question may scroll out of the page on the way (a long answer):
+      // the finder keeps the diagram it found while that stays rendered.
+      const find = () => diagram(turnOf(entry));
+      if (await waitForDom(() => !!find(), DIAGRAM_WAIT_MS, controller.signal)) {
+        const scrolled = safe('scroll', () => scrollToElement(container, find()!), false);
+        await settleOn(find, container, scrolled, controller.signal);
+        shown = find;
+      }
+    }
     // A newer click owns the pin now; a user scroll has released it already.
     if (seekController !== controller) return;
     seekController = null;
@@ -212,10 +230,12 @@ export function createSeeker(ctx: SeekContext): Seeker {
     if (landing) {
       // The highlight asks for the message on every frame: claude.ai may
       // re-create it while it is shown.
-      const box = () => {
-        const turn = turnOf(entry);
-        return turn ? safe('message box', () => messageBox(turn), turn) : null;
-      };
+      const box =
+        shown ??
+        (() => {
+          const turn = turnOf(entry);
+          return turn ? safe('message box', () => messageBox(turn), turn) : null;
+        });
       safe('highlight', () => view.highlight(box, isDocScroller(container) ? null : container));
     } else if (!ctx.stopped()) {
       // The question is in the list (from the API) but claude.ai does not
@@ -257,7 +277,12 @@ export function createSeeker(ctx: SeekContext): Seeker {
   // time). Such a move cancels a smooth scroll, so corrections are instant:
   // nothing can interrupt them. Done once the target has stayed in place
   // for two frames.
-  async function settleOn(entry: Entry, container: Element, scrolled: boolean, signal: AbortSignal) {
+  async function settleOn(
+    target: () => HTMLElement | null,
+    container: Element,
+    scrolled: boolean,
+    signal: AbortSignal
+  ) {
     if (scrolled) await scrollEnded(container, SCROLL_END_WAIT_MS);
     const scrollEl = scrollElementOf(container);
     let steady = 0;
@@ -266,7 +291,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
       await nextFrame();
       if (signal.aborted || ctx.stopped()) return;
       ctx.rebuild();
-      const turn = turnOf(entry);
+      const turn = target();
       if (!turn) return;
       const delta = turn.getBoundingClientRect().top - containerTop(container) - S.layout.scrollOffset;
       // Already as far as the page goes (a question near the very end or start).

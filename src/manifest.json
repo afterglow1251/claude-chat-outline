@@ -24,8 +24,14 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["panel.css"],
+      "resources": ["panel.css", "preview.html"],
       "matches": ["https://claude.ai/*"]
     }
-  ]
+  ],
+  "sandbox": {
+    "pages": ["preview.html"]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: blob:; connect-src https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh"
+  }
 }

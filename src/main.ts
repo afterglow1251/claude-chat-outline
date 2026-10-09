@@ -3,8 +3,9 @@
 import { DEBUG_EVENT } from './core/events';
 import { isConversationPath } from './outline/extract';
 import { createSession, debugReport, renderedTurns, watchLocation, type Session } from './outline/outline';
+import { diagramFinder } from './outline/diagrams';
 import { createPanel, HOST_ID, type Panel } from './ui/panel';
-import { conversationId, pruneCache } from './data/sources';
+import { conversationId, fetchDiagrams, pruneCache } from './data/sources';
 
 let panel: Panel | null = null;
 let session: Session | null = null;
@@ -14,10 +15,12 @@ let sessionKey: string | null = null; // which conversation the session belongs 
 function boot() {
   panel = createPanel({
     onSelect: (index) => session?.scrollTo(index),
+    onSelectDiagram: (index, target) => session?.scrollTo(index, diagramFinder(target)),
     onStep: (delta) => session?.step(delta),
     onResume: (index) => session?.resume(index),
     onLoadAll: () => session?.loadAll(),
     onCancelLoad: () => session?.cancelLoad(),
+    loadDiagrams: (convId) => fetchDiagrams(convId),
   });
   routes = watchLocation(onRouteChange);
   document.addEventListener(DEBUG_EVENT, debugReport);
