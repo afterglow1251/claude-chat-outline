@@ -34,6 +34,21 @@
   --color-border-warning: #854f0b;
   --color-border-danger: #a32d2d;
   color-scheme: light;
+
+  /* The short names, which widgets use as much as the long ones (a canvas
+     reads them with getComputedStyle: a missing one falls back to the
+     widget's own grey). --surface-1 is the chat's own background. */
+  --surface-0: #ffffff;
+  --surface-1: #faf9f5;
+  --surface-2: #f0eee6;
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --border: var(--color-border-tertiary);
+  --border-strong: var(--color-border-secondary);
+  --border-stronger: var(--color-border-primary);
+  --radius: var(--border-radius-md);
+  --radius-lg: var(--border-radius-lg);
 }
 
 :root[data-theme='dark'] {
@@ -59,6 +74,10 @@
   --color-border-warning: #ef9f27;
   --color-border-danger: #f09595;
   color-scheme: dark;
+
+  --surface-0: #1f1e1d;
+  --surface-1: #262624;
+  --surface-2: #30302e;
 }
 
 html,
@@ -265,14 +284,35 @@ textarea {
 
 button {
   padding: 6px 14px;
-  background: var(--color-background-primary);
+  background: transparent;
   border: 0.5px solid var(--color-border-secondary);
   border-radius: var(--border-radius-md);
   cursor: pointer;
 }
 
+/* A thin light track and a round light knob, as in the chat. */
 input[type='range'] {
-  accent-color: var(--color-text-secondary);
+  appearance: none;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  background: var(--surface-0);
+  border: 0.5px solid var(--border-stronger);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 input:not([type='range'], [type='checkbox'], [type='radio']),
