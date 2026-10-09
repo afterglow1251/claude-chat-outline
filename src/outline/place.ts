@@ -4,9 +4,10 @@
 // the chat, its row carries a bookmark for the whole visit. Nothing pops up;
 // you go back by clicking it, like any other question.
 //
-// The place is a question you actually read: one you stayed on for
-// DWELL_MS, not one passed through on a jump or a quick scroll. Saved by
-// its matching key, so it survives edits elsewhere in the chat.
+// The place is the question you chose to go to (a jump from the panel,
+// saved at once: in a long chat the jump itself can take many seconds), or
+// one you stayed on for DWELL_MS while scrolling, not one passed through.
+// Saved by its matching key, so it survives edits elsewhere in the chat.
 import * as Sources from '../data/sources';
 import type { Entry, View } from '../core/types';
 
@@ -15,6 +16,8 @@ const DWELL_MS = 5000;
 export interface Place {
   /** The question being read is `active` (-1: none); `settled`: the list is the conversation's full one. */
   update(items: readonly Entry[], active: number, settled: boolean): void;
+  /** A jump to this question started: it is the place now. */
+  chose(entry: Entry | undefined): void;
   stop(): void;
 }
 
@@ -57,6 +60,13 @@ export function createPlace(convId: string, view: View): Place {
 
   return {
     update,
+    chose(entry) {
+      const key = entry?.key;
+      if (!key || stopped) return;
+      clearTimeout(dwellTimer);
+      reading = key;
+      if (key !== saved) save(key);
+    },
     stop() {
       stopped = true;
       clearTimeout(dwellTimer);

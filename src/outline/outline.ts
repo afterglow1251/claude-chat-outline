@@ -50,11 +50,13 @@ const known = new Map<string, readonly ApiQuestion[]>();
 // Stepping up from a question scrolled further than this above the line
 // goes back to that question's own start first.
 const STEP_INSIDE_PX = 16;
-// "Continue where you left off" (see resume.ts): turned off for now. It
-// came up on every reload and after every jump, and got in the way more
-// than it helped; the place is marked in the list instead (see place.ts).
-// Set to true to bring the offer back.
+// Where you left off in each chat: turned off, stars cover marking a
+// place on purpose. Two versions are kept: an offer over the chat
+// (resume.ts; came up on every reload and after every jump) and a ribbon
+// in the question list (place.ts; easy to miss in a long chat). Set one
+// to true to bring it back.
 const RESUME_ENABLED = false;
+const PLACE_ENABLED = false;
 
 // ---------------------------------------------------------------------------
 // Session: everything that lives for one conversation. convId is the
@@ -126,7 +128,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   const ledger = createLedger();
   const cache = convId ? Sources.createCache(convId) : null;
   const resume = convId && RESUME_ENABLED ? createResume(convId, view) : null;
-  const place = convId && !RESUME_ENABLED ? createPlace(convId, view) : null;
+  const place = convId && PLACE_ENABLED && !RESUME_ENABLED ? createPlace(convId, view) : null;
   let unlistenUserScroll: (() => void) | null = null;
   const seeker = createSeeker({
     view,
@@ -315,6 +317,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     else if (delta < 0 && jumping === null && tracker && scrolledInto(items[from], tracker.container)) to = from;
     if (to < 0 || to >= items.length) return;
     resume?.done();
+    place?.chose(items[to]);
     seeker.scrollTo(to);
   }
 
@@ -420,11 +423,17 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   return {
     start,
     stop,
-    scrollTo: seeker.scrollTo,
+    scrollTo(index, diagram) {
+      place?.chose(items[index]);
+      return seeker.scrollTo(index, diagram);
+    },
     step,
     resume(index) {
       resume?.done();
-      if (index !== null) seeker.scrollTo(index);
+      if (index !== null) {
+        place?.chose(items[index]);
+        seeker.scrollTo(index);
+      }
     },
     loadAll: loader.loadAll,
     cancelLoad: loader.cancel,
