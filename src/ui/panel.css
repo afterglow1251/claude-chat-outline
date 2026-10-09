@@ -513,7 +513,7 @@ li:has(:focus-visible) .star,
 .live-box[data-ready]::before {
   animation: none;
   visibility: hidden;
-  transition: visibility 0s 300ms;
+  transition: visibility 0s 400ms;
 }
 
 .thumb,
@@ -532,7 +532,7 @@ li:has(:focus-visible) .star,
 
 .thumb-box[data-ready] .thumb,
 .live-box[data-ready] iframe {
-  animation: co-reveal 300ms ease-out both;
+  animation: co-reveal 400ms ease-out both;
 }
 
 @keyframes co-shimmer {

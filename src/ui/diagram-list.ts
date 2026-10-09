@@ -13,13 +13,6 @@ import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind, DiagramTarget } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
 
-const KIND_LABEL: Record<DiagramKind, string> = {
-  svg: 'SVG',
-  mermaid: 'Mermaid',
-  html: 'HTML',
-  react: 'React',
-  widget: 'Visual',
-};
 const REACT_ICON = 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -215,7 +208,10 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
         : []),
       h('span', { className: 'diagram-text' }, [
         h('span', { className: 'diagram-title' }, [d.title]),
-        h('span', { className: 'diagram-meta' }, [`${KIND_LABEL[d.kind]} · question ${d.question + 1}`]),
+        // The preview shows what it is; a React artifact has none, so it says so.
+        h('span', { className: 'diagram-meta' }, [
+          d.kind === 'react' ? `React · question ${d.question + 1}` : `Question ${d.question + 1}`,
+        ]),
       ]),
     ]);
     return h('li', { className: 'diagram-row', 'data-index': String(index) }, [...(preview ? [preview] : []), button]);
