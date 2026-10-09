@@ -140,6 +140,34 @@ export function createListTools({ scope, what, onChange, onDown }: ListToolsOpti
   };
 }
 
+/**
+ * Where a list opens: at the row jumped to last if there is one, else at its
+ * end (the latest). At the end, it stays there while rows still settle to
+ * their size (live previews), until you scroll it yourself.
+ */
+export function listScroll(scroller: HTMLElement, list: HTMLElement) {
+  let stick = false;
+  const toEnd = () => {
+    scroller.scrollTop = scroller.scrollHeight;
+  };
+  for (const type of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) {
+    scroller.addEventListener(type, () => (stick = false), { passive: true });
+  }
+  const resize = new ResizeObserver(() => stick && toEnd());
+  resize.observe(list);
+  return {
+    reveal() {
+      const row = list.querySelector<HTMLElement>(':scope > [aria-current="true"]:not([hidden])');
+      stick = !row;
+      if (!row) return toEnd();
+      const box = scroller.getBoundingClientRect();
+      const r = row.getBoundingClientRect();
+      scroller.scrollTop += r.top + r.height / 2 - (box.top + box.height / 2);
+    },
+    stop: () => resize.disconnect(),
+  };
+}
+
 /** Marks the row jumped to last, as the question being read is marked. */
 export function markPicked(row: HTMLElement, on: boolean): void {
   if (on) row.setAttribute('aria-current', 'true');

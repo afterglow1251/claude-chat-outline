@@ -7,7 +7,7 @@
 import { h, icon } from '../core/dom';
 import type { CodeBlock, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
-import { createListTools, listKeys, markPicked, type ListTools } from './list-tools';
+import { createListTools, listKeys, listScroll, markPicked, type ListTools } from './list-tools';
 
 const PREVIEW_LINES = 6;
 // Opening the view again within this time shows what was read, unasked.
@@ -99,6 +99,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
   const list = h('ol', { className: 'code-list', 'aria-label': 'Code' });
   const message = h('p', { className: 'empty', hidden: '' });
   const scroller = h('div', { className: 'scroll' }, [list, message]);
+  const scrolling = listScroll(scroller, list);
   const tools = createListTools({
     scope: 'code',
     what: 'code',
@@ -119,6 +120,11 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
   }
 
   let picked: string | null = null; // the block last jumped to, by its star key
+  let revealPending = false; // opened, not yet scrolled to where it opens
+  function reveal() {
+    revealPending = false;
+    scrolling.reveal();
+  }
 
   // Marks the starred blocks and shows only those that match the filter
   // (by language or code) and, with "starred only" on, are starred.
@@ -146,6 +152,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     list.replaceChildren(...(next ?? []).map((b, i) => row(b, i, tools)));
     say(!next ? TEXT.failed : next.length ? '' : TEXT.none);
     applyFilter();
+    if (revealPending && next) reveal();
     onCount(next ? next.length : null);
   }
 
@@ -155,8 +162,11 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     unsubscribe ??= Store.subscribe(id, (conversation) => {
       if (!element.hidden && conversation.code) draw(conversation.code);
     });
+    // Opened: at the end, or at the block picked last, once there is a list.
+    revealPending = true;
     const known = Store.peek(id).code;
     if (known) draw(known);
+    if (revealPending && blocks) reveal();
     // The answer comes through the subscription.
     await Store.refresh(id, MAX_AGE_MS);
     // Unavailable: a list already shown stays.
@@ -218,6 +228,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     destroy() {
       unsubscribe?.();
       unsubscribe = null;
+      scrolling.stop();
     },
   };
 }

@@ -14,7 +14,7 @@ import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind, DiagramTarget } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
 import * as Store from '../data/store';
-import { createListTools, listKeys, markPicked } from './list-tools';
+import { createListTools, listKeys, listScroll, markPicked } from './list-tools';
 
 const REACT_ICON = 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -94,6 +94,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
   const list = h('ol', { className: 'diagram-list', 'aria-label': 'Diagrams' });
   const message = h('p', { className: 'empty', hidden: '' });
   const scroller = h('div', { className: 'scroll' }, [list, message]);
+  const scrolling = listScroll(scroller, list);
   const tools = createListTools({
     scope: 'diagrams',
     what: 'diagrams',
@@ -244,6 +245,11 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
   }
 
   let picked: string | null = null; // the diagram last jumped to, by its star key
+  let revealPending = false; // opened, not yet scrolled to where it opens
+  function reveal() {
+    revealPending = false;
+    scrolling.reveal();
+  }
 
   // A diagram's star survives reloads: kept by its question, kind, title
   // and place among the answer's diagrams with that title.
@@ -279,6 +285,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     list.replaceChildren(...(next ?? []).map(row));
     say(!next ? TEXT.failed : next.length ? '' : TEXT.none);
     applyFilter();
+    if (revealPending && next) reveal();
     onCount(next ? next.length : null);
   }
 
@@ -290,8 +297,11 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     unsubscribe ??= Store.subscribe(id, (conversation) => {
       if (!element.hidden && conversation.diagrams) draw(conversation.diagrams);
     });
+    // Opened: at the end, or at the diagram picked last, once there is a list.
+    revealPending = true;
     const known = Store.peek(id).diagrams;
     if (known) draw(known);
+    if (revealPending && diagrams) reveal();
     // The answer comes through the subscription.
     await Store.refresh(id, MAX_AGE_MS);
     // Unavailable: a list already shown stays.
@@ -340,6 +350,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
       unsubscribe = null;
       release();
       resize.disconnect();
+      scrolling.stop();
       window.removeEventListener('message', onMessage);
     },
   };
