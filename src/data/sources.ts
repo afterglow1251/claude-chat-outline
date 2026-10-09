@@ -64,14 +64,20 @@ function storageRemove(keys: string[]): void {
 
 const STARS_PREFIX = 'outline-stars:';
 
-export async function loadStars(convId: string): Promise<string[]> {
-  const key = STARS_PREFIX + convId;
+// The questions' stars are kept under the plain prefix (as they always
+// were); the diagrams' and the code's each under their own.
+export type StarScope = 'questions' | 'diagrams' | 'code';
+const starsKey = (convId: string, scope: StarScope) =>
+  STARS_PREFIX + (scope === 'questions' ? '' : `${scope}:`) + convId;
+
+export async function loadStars(convId: string, scope: StarScope = 'questions'): Promise<string[]> {
+  const key = starsKey(convId, scope);
   const value = (await storageGet({ [key]: null }))[key];
   return Array.isArray(value) ? value.filter((k): k is string => typeof k === 'string') : [];
 }
 
-export function saveStars(convId: string, keys: readonly string[]): void {
-  const key = STARS_PREFIX + convId;
+export function saveStars(convId: string, keys: readonly string[], scope: StarScope = 'questions'): void {
+  const key = starsKey(convId, scope);
   if (keys.length) storageSet({ [key]: [...keys] });
   else storageRemove([key]);
 }

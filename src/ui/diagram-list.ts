@@ -14,6 +14,7 @@ import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind, DiagramTarget } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
 import * as Store from '../data/store';
+import { createStars } from './stars';
 
 const REACT_ICON = 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -35,6 +36,7 @@ const READY_FALLBACK_MS = 2500;
 
 const TEXT = {
   none: 'No diagrams in this chat.',
+  noneStarred: 'No starred diagrams.',
   failed: "Couldn't read this chat's diagrams.",
 };
 
@@ -91,7 +93,8 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
   const list = h('ol', { className: 'diagram-list', 'aria-label': 'Diagrams' });
   const message = h('p', { className: 'empty', hidden: '' });
   const scroller = h('div', { className: 'scroll' }, [list, message]);
-  const element = h('div', { className: 'diagrams' }, [scroller]);
+  const stars = createStars('diagrams', 'diagrams', applyStars);
+  const element = h('div', { className: 'diagrams' }, [stars.bar, scroller]);
 
   // ----- previews -----------------------------------------------------------
 
@@ -208,7 +211,10 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
         ]),
       ]),
     ]);
-    return h('li', { className: 'diagram-row', 'data-index': String(index) }, [...(preview ? [preview] : []), button]);
+    return h('li', { className: 'diagram-row', 'data-index': String(index) }, [
+      ...(preview ? [preview] : []),
+      h('div', { className: 'diagram-line' }, [button, stars.button()]),
+    ]);
   }
 
   function release() {
@@ -225,6 +231,27 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     message.textContent = text;
   }
 
+  // A diagram's star survives reloads: kept by its question, kind, title
+  // and place among the answer's diagrams with that title.
+  function starKey(index: number): string {
+    const t = target(index);
+    return `${diagrams![index].question}|${t.kind}|${t.title}|${t.nth}`;
+  }
+
+  // Marks the starred rows and, with "starred only" on, shows only those.
+  function applyStars() {
+    if (!diagrams) return;
+    let visible = 0;
+    for (const li of list.children as HTMLCollectionOf<HTMLElement>) {
+      const index = Number(li.dataset.index);
+      const key = starKey(index);
+      stars.patch(li.querySelector('.star')!, key, diagrams[index].title);
+      li.hidden = stars.only && !stars.has(key);
+      if (!li.hidden) visible++;
+    }
+    say(!diagrams.length ? TEXT.none : visible ? '' : TEXT.noneStarred);
+  }
+
   function draw(next: readonly Diagram[] | null) {
     // The same diagrams again (the store keeps an unchanged list as is):
     // nothing to redraw, so no preview restarts.
@@ -233,6 +260,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     release();
     list.replaceChildren(...(next ?? []).map(row));
     say(!next ? TEXT.failed : next.length ? '' : TEXT.none);
+    applyStars();
     onCount(next ? next.length : null);
   }
 
@@ -260,6 +288,8 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
   }
 
   list.addEventListener('click', (e) => {
+    const star = (e.target as Element).closest<HTMLElement>('.star');
+    if (star?.dataset.star) return stars.toggle(star.dataset.star);
     const li = (e.target as Element).closest<HTMLElement>('.diagram-row');
     const index = Number(li?.dataset.index);
     if (li && diagrams?.[index]) onSelect(diagrams[index].question, target(index));
@@ -270,6 +300,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     show,
     setConversation(id) {
       convId = id;
+      stars.setConversation(id);
       unsubscribe?.();
       unsubscribe = null;
       diagrams = null;

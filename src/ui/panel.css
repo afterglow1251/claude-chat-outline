@@ -535,6 +535,30 @@ li:has(:focus-visible) .star,
   color: var(--co-muted);
 }
 
+/* ----- stars on diagrams and code (see stars.ts) ------------------------- */
+
+/* The "starred only" button, right-aligned, where the questions' one is. */
+.star-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px;
+  border-bottom: 1px solid var(--co-border);
+}
+
+.diagram-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.diagram-line .diagram {
+  flex: 1;
+  min-width: 0;
+}
+
+.code-head .star {
+  height: 26px;
+}
+
 /* ----- diagrams (see diagram-list.ts) ---------------------------------- */
 
 .diagram-list {

@@ -7,6 +7,7 @@
 import { h, icon } from '../core/dom';
 import type { CodeBlock, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
+import { createStars, type Stars } from './stars';
 
 const PREVIEW_LINES = 6;
 // Opening the view again within this time shows what was read, unasked.
@@ -18,6 +19,7 @@ const ICON_COPIED = 'M5 12.5l4.5 4.5L19 7.5';
 
 const TEXT = {
   none: 'No code in this chat.',
+  noneStarred: 'No starred code.',
   failed: "Couldn't read this chat's code.",
 };
 
@@ -53,6 +55,14 @@ function findLine(code: string): string {
 // Its first lines, without blank ones at the end of what is shown.
 const preview = (code: string) => code.split('\n').slice(0, PREVIEW_LINES).join('\n').replace(/\s+$/, '');
 
+// A block's star survives reloads: kept by its question and a fingerprint
+// of its code (a block that changes is a new one).
+function starKey(b: CodeBlock): string {
+  let hash = 5381;
+  for (let i = 0; i < b.code.length; i++) hash = ((hash << 5) + hash + b.code.charCodeAt(i)) | 0;
+  return `${b.question}|${(hash >>> 0).toString(36)}`;
+}
+
 async function copy(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -62,7 +72,7 @@ async function copy(text: string): Promise<boolean> {
   }
 }
 
-function row(b: CodeBlock, index: number): HTMLLIElement {
+function row(b: CodeBlock, index: number, stars: Stars): HTMLLIElement {
   const lines = b.code.split('\n').length;
   const more = lines > PREVIEW_LINES ? ` · ${lines} lines` : '';
   const copyBtn = h(
@@ -75,7 +85,7 @@ function row(b: CodeBlock, index: number): HTMLLIElement {
     h('span', { className: 'code-meta' }, [`Question ${b.question + 1}${more}`]),
   ]);
   return h('li', { className: 'code-row', 'data-index': String(index) }, [
-    h('div', { className: 'code-head' }, [jump, copyBtn]),
+    h('div', { className: 'code-head' }, [jump, stars.button(), copyBtn]),
     h('pre', { className: 'code-preview' }, [preview(b.code)]),
   ]);
 }
@@ -87,19 +97,35 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
 
   const list = h('ol', { className: 'code-list', 'aria-label': 'Code' });
   const message = h('p', { className: 'empty', hidden: '' });
-  const element = h('div', { className: 'code' }, [h('div', { className: 'scroll' }, [list, message])]);
+  const stars = createStars('code', 'code', applyStars);
+  const element = h('div', { className: 'code' }, [stars.bar, h('div', { className: 'scroll' }, [list, message])]);
 
   function say(text: string) {
     message.hidden = !text;
     message.textContent = text;
   }
 
+  // Marks the starred blocks and, with "starred only" on, shows only those.
+  function applyStars() {
+    if (!blocks) return;
+    let shown = 0;
+    for (const li of list.children as HTMLCollectionOf<HTMLElement>) {
+      const b = blocks[Number(li.dataset.index)];
+      const key = starKey(b);
+      stars.patch(li.querySelector('.star')!, key, `${b.language || 'code'} block`);
+      li.hidden = stars.only && !stars.has(key);
+      if (!li.hidden) shown++;
+    }
+    say(!blocks.length ? TEXT.none : shown ? '' : TEXT.noneStarred);
+  }
+
   function draw(next: readonly CodeBlock[] | null) {
     // The same blocks again (the store keeps an unchanged list as is).
     if (next && next === blocks) return;
     blocks = next;
-    list.replaceChildren(...(next ?? []).map(row));
+    list.replaceChildren(...(next ?? []).map((b, i) => row(b, i, stars)));
     say(!next ? TEXT.failed : next.length ? '' : TEXT.none);
+    applyStars();
     onCount(next ? next.length : null);
   }
 
@@ -127,6 +153,8 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
 
   list.addEventListener('click', (e) => {
     const el = e.target as Element;
+    const star = el.closest<HTMLElement>('.star');
+    if (star?.dataset.star) return stars.toggle(star.dataset.star);
     const li = el.closest<HTMLElement>('.code-row');
     const index = Number(li?.dataset.index);
     if (!li || !blocks?.[index]) return;
@@ -150,6 +178,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     show,
     setConversation(id) {
       convId = id;
+      stars.setConversation(id);
       unsubscribe?.();
       unsubscribe = null;
       blocks = null;
