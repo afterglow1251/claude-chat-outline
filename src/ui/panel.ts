@@ -10,7 +10,7 @@ import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import { createDiagramList } from './diagram-list';
 import * as S from '../core/selectors';
-import type { Diagram, DiagramTarget, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
+import type { DiagramTarget, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
 export { HOST_ID };
 const SITE_URL = 'https://afterglow1251.github.io/claude-chat-outline/';
@@ -151,8 +151,6 @@ export interface PanelCallbacks {
   onResume(index: number | null): void;
   onLoadAll(): void;
   onCancelLoad(): void;
-  /** This chat's diagrams, read when the Diagrams view is opened. */
-  loadDiagrams(convId: string): Promise<Diagram[] | null>;
 }
 
 export interface Panel extends View {
@@ -183,7 +181,6 @@ export function createPanel({
   onResume,
   onLoadAll,
   onCancelLoad,
-  loadDiagrams,
 }: PanelCallbacks): Panel {
   const state = {
     ...DEFAULTS,
@@ -270,7 +267,6 @@ export function createPanel({
   ]);
   const questions = createQuestionList({ onSelect });
   const diagrams = createDiagramList({
-    load: loadDiagrams,
     onSelect: onSelectDiagram,
     onCount(n) {
       state.diagramCount = n;
