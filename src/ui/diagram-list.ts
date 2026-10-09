@@ -28,10 +28,15 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const RENDER_WIDTH = 680;
 const RENDER_MAX_HEIGHT = 2000;
 const HEIGHT_GUESS = 400; // until the preview reports its own
-const MOUNT_MARGIN = '200px 0px'; // started a little before they scroll in
-// Shown by then even if it never says how tall it is (a page whose own
-// scripts break the report): better a drawing in a guessed box than none.
-const READY_FALLBACK_MS = 1500;
+// Started well before they scroll in, so they are usually ready by then,
+// and dropped only once far out of view, so scrolling back doesn't
+// reload them. While the view or the panel is hidden they are kept:
+// Chrome doesn't draw a frame that isn't shown.
+const START_MARGIN = '600px 0px';
+const STOP_MARGIN = '1500px 0px';
+// Shown by then even if it never says it is complete (a page whose own
+// scripts break the report): better a drawing than a shimmer forever.
+const READY_FALLBACK_MS = 2500;
 // Diagrams this tab has already received, by conversation (most recent
 // last): shown at once on coming back, while they are asked for again.
 const KNOWN_MAX_CHATS = 20;
@@ -157,29 +162,38 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     box.removeAttribute('data-ready');
   }
 
-  // Started and stopped as rows come and go, and all stopped while the
-  // view (or the panel) is hidden: nothing is on screen then.
-  const visibility = new IntersectionObserver(
+  const shown = () => scroller.getClientRects().length > 0;
+  const starter = new IntersectionObserver(
     (entries) => {
-      for (const e of entries) (e.isIntersecting ? mount : unmount)(e.target as HTMLElement);
+      for (const e of entries) if (e.isIntersecting) mount(e.target as HTMLElement);
     },
-    { root: scroller, rootMargin: MOUNT_MARGIN }
+    { root: scroller, rootMargin: START_MARGIN }
+  );
+  const stopper = new IntersectionObserver(
+    (entries) => {
+      // Hidden, everything reads as out of view: kept as it is.
+      if (!shown()) return;
+      for (const e of entries) if (!e.isIntersecting) unmount(e.target as HTMLElement);
+    },
+    { root: scroller, rootMargin: STOP_MARGIN }
   );
   const resize = new ResizeObserver(updateScale);
   resize.observe(list);
 
-  // A preview's height, the one thing it may tell the panel.
+  // A preview's height and that it is complete, the only things it may
+  // tell the panel. The box takes its size while it still shimmers, and
+  // the drawing fades in once complete.
   function onMessage(e: MessageEvent) {
     const box = e.source ? frames.get(e.source) : undefined;
     if (!box || !e.data || typeof e.data !== 'object') return;
-    const height = Number((e.data as { coPreviewHeight?: unknown }).coPreviewHeight);
+    const data = e.data as { coPreviewHeight?: unknown; coPreviewReady?: unknown };
+    const height = Number(data.coPreviewHeight);
     const diagram = live.get(box);
     if (!diagram || !Number.isFinite(height) || height <= 0) return;
     const clamped = Math.min(Math.round(height), RENDER_MAX_HEIGHT);
     heights.set(diagram, clamped);
     setHeight(box, clamped);
-    // Drawn: the shimmer gives way to the drawing.
-    box.toggleAttribute('data-ready', true);
+    if (data.coPreviewReady === true) box.toggleAttribute('data-ready', true);
   }
   window.addEventListener('message', onMessage);
 
@@ -192,7 +206,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
       preview = h('div', { className: 'live-box', 'aria-hidden': 'true' });
       setHeight(preview, heights.get(d) ?? svgHeight(d) ?? HEIGHT_GUESS);
       live.set(preview, d);
-      visibility.observe(preview);
+      starter.observe(preview);
+      stopper.observe(preview);
     }
     const button = h('button', { type: 'button', className: 'diagram', title: `${d.title}: jump to it` }, [
       ...(d.kind === 'react'
@@ -207,7 +222,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
   }
 
   function release() {
-    visibility.disconnect();
+    starter.disconnect();
+    stopper.disconnect();
     for (const box of live.keys()) unmount(box as HTMLElement);
     live.clear();
     urls.forEach((url) => URL.revokeObjectURL(url));

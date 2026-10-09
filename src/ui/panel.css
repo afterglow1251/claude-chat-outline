@@ -495,8 +495,10 @@ li:has(:focus-visible) .star,
 }
 
 /* Appearing: the box has its place from the start and shimmers until the
-   drawing is ready, which then fades in (opacity only). A box whose size
-   was a guess eases to the real one. */
+   drawing is complete, which then fades in over the shimmer (opacity only;
+   the drawing has the box's own background, so it covers it as it comes).
+   The shimmer goes once covered. A box whose size was a guess eases to the
+   real one while it still shimmers. */
 .thumb-box::before,
 .live-box::before {
   content: '';
@@ -509,17 +511,28 @@ li:has(:focus-visible) .star,
 
 .thumb-box[data-ready]::before,
 .live-box[data-ready]::before {
-  display: none;
+  animation: none;
+  visibility: hidden;
+  transition: visibility 0s 300ms;
 }
 
 .thumb,
 .live-box iframe {
+  position: relative; /* over the shimmer */
   opacity: 0;
+}
+
+.thumb {
+  background: #ffffff;
+}
+
+.live-box iframe {
+  background: var(--co-bg);
 }
 
 .thumb-box[data-ready] .thumb,
 .live-box[data-ready] iframe {
-  animation: co-reveal 220ms ease-out both;
+  animation: co-reveal 300ms ease-out both;
 }
 
 @keyframes co-shimmer {

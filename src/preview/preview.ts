@@ -15,21 +15,33 @@ export interface PreviewMessage {
 
 const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
 
-// Reports the drawing's height whenever it changes, and gives the
+// Reports the drawing's height whenever it changes, and once it is
+// complete (fonts, images and libraries loaded, a frame painted; a page
+// that sets window.coDeferReady says so itself with coReady()), so the
+// panel shows it only then and it never changes once shown. Also gives the
 // visualizer's widgets the sendPrompt() they call on click (a no-op here).
 const REPORTER = `<script>
 window.sendPrompt = function () {};
 (function () {
   var last = 0;
+  function height() { return Math.ceil(document.documentElement.getBoundingClientRect().height); }
   function report() {
-    var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    var h = height();
     if (h && h !== last) { last = h; parent.postMessage({ coPreviewHeight: h }, '*'); }
   }
+  window.coReady = function () {
+    requestAnimationFrame(function () {
+      report();
+      parent.postMessage({ coPreviewHeight: height(), coPreviewReady: true }, '*');
+    });
+  };
   addEventListener('DOMContentLoaded', function () {
     new ResizeObserver(report).observe(document.documentElement);
     report();
   });
-  addEventListener('load', report);
+  addEventListener('load', function () {
+    if (!window.coDeferReady) window.coReady();
+  });
 })();
 </script>`;
 
@@ -45,7 +57,7 @@ function page({ kind, source, theme }: PreviewMessage): string {
     return (
       `${head}<style>body { padding: 16px; } .mermaid { display: flex; justify-content: center; margin: 0; }</style></head>` +
       `<body><pre class="mermaid">${escapeHtml(source)}</pre><script src="${MERMAID}"></script>` +
-      `<script>mermaid.initialize({ startOnLoad: false, theme: '${theme === 'dark' ? 'dark' : 'neutral'}' }); mermaid.run();</script></body></html>`
+      `<script>window.coDeferReady = true; mermaid.initialize({ startOnLoad: false, theme: '${theme === 'dark' ? 'dark' : 'neutral'}' }); mermaid.run().finally(coReady);</script></body></html>`
     );
   }
   return `${head}</head><body>${source}</body></html>`;
