@@ -464,9 +464,13 @@ export function createPanel({
     }
     views.classList.toggle('open', open);
   }
-  // Opens the moment the pointer lands on it; closes once it has left the
-  // whole strip, after a blink.
-  listen(views, 'pointerenter', () => setStrip(true));
+  // Opens the moment the pointer moves onto it; closes once it has left the
+  // whole strip, after a blink. A real move, not an "enter": the page
+  // loading under a pointer at rest (a reload) sends one of those, and
+  // the strip must not unroll by itself.
+  listen<PointerEvent>(views, 'pointermove', (e) => {
+    if (e.movementX || e.movementY) setStrip(true);
+  });
   listen(views, 'pointerleave', () => {
     clearTimeout(stripTimer);
     stripTimer = setTimeout(() => setStrip(false), STRIP_CLOSE_MS);

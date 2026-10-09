@@ -9,6 +9,7 @@
   --co-hover: rgba(31, 30, 29, 0.05);
   --co-active-bg: rgba(217, 119, 87, 0.1);
   --co-accent: #d97757;
+  --co-accent-hover: #c4633f;
   --co-focus: #2c84db;
   --co-input-bg: #ffffff;
   --co-error: #b5332a;
@@ -23,6 +24,7 @@
   --co-border: rgba(255, 255, 255, 0.1);
   --co-hover: rgba(255, 255, 255, 0.05);
   --co-active-bg: rgba(217, 119, 87, 0.16);
+  --co-accent-hover: #e6896b;
   --co-focus: #66a7ee;
   --co-input-bg: #1f1e1d;
   --co-error: #f08a80;
@@ -358,6 +360,13 @@ svg {
 .star-filter[aria-pressed='true'] {
   color: var(--co-accent);
   border-color: var(--co-accent);
+  background: var(--co-active-bg);
+}
+
+/* Pointed at while on: a deeper orange, not the dark of other buttons' hover. */
+.star-filter[aria-pressed='true']:hover:not(:disabled) {
+  color: var(--co-accent-hover);
+  border-color: var(--co-accent-hover);
   background: var(--co-active-bg);
 }
 
