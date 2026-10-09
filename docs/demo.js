@@ -73,11 +73,13 @@
     { title: 'Every question in one panel', dur: 4.5 },
     { title: 'Click to jump', dur: 5.9 },
     { title: 'Follows as you read', dur: 4.6 },
+    { title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
     { title: 'Search your questions', dur: 7.2 },
     { title: 'Star the ones that matter', dur: 6 },
     { title: "Reach what isn't loaded yet", dur: 6.6 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
     { title: `${mod} ↑ ↓ for the first and last`, dur: 7.6 },
+    { title: 'Picks up where you left off', dur: 6.4 },
     { title: 'Light and dark', dur: 4.2 },
   ];
   let acc = 0;
@@ -125,6 +127,7 @@
       keys: 0,
       caps: [mod, '⇧', 'O'], // the keys shown
       focusRow: -1, // the row with keyboard focus
+      resume: 0, // the "Continue where you left off" pill, 0 hidden to 1 shown
       dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
       cursor: cursorPath(0, [[0, 'rest']]),
@@ -163,7 +166,33 @@
     }
 
     if (ci === 3) {
-      s.chatPos = 7.7;
+      // Reading inside question 8's answer: up goes to its start, up again
+      // to question 7, down back to 8. Each jump flashes, like a click.
+      s.cursor = cursorPath(t, [[0, 'chat']]);
+      const presses = [
+        [0.8, '↑', 7.7, 7],
+        [2.4, '↑', 7, 6],
+        [4.0, '↓', 6, 7],
+      ];
+      const shown = presses.find(([at]) => t >= at - 0.4 && t < at + 0.5);
+      s.keys = shown ? 1 : 0;
+      s.caps = [mod, '⇧', shown ? shown[1] : '↑'];
+      s.keysDown = presses.some(([at]) => t >= at - 0.1 && t < at + 0.2);
+      const done = presses.filter(([at]) => t >= at);
+      const now = done[done.length - 1];
+      if (now) {
+        const [at, , from, to] = now;
+        s.chatPos = lerp(from, to, inOut(seg(t, at + 0.05, at + 0.7)));
+        s.active = to;
+        s.flash = { index: to, at: at + 0.6 };
+      } else {
+        s.chatPos = 7.7;
+        s.active = 7;
+      }
+    }
+
+    if (ci === 4) {
+      s.chatPos = 7;
       s.active = 7;
       const typeStart = 1.4;
       const word = 'i love claude';
@@ -174,12 +203,12 @@
       s.hover = t > 4.2 ? 4 : -1;
       if (t >= 4.7) {
         s.active = 4;
-        s.chatPos = lerp(7.7, 4, inOut(seg(t, 4.75, 5.8)));
+        s.chatPos = lerp(7, 4, inOut(seg(t, 4.75, 5.8)));
         s.flash = { index: 4, at: 5.4 };
       }
     }
 
-    if (ci === 4) {
+    if (ci === 5) {
       s.chatPos = 4;
       s.active = 4;
       s.cursor = cursorPath(t, [[0, 'item:4'], [1.0, 'star:4'], [1.6, 'star:4'], [2.4, 'star:8'], [3.1, 'star:8'], [3.9, 'starBtn']]);
@@ -189,7 +218,7 @@
       s.starOnly = t >= 4.1;
     }
 
-    if (ci === 5) {
+    if (ci === 6) {
       // A long chat: the early questions aren't on the page.
       s.stars = [4, 8];
       s.unloadedBelow = 6;
@@ -208,7 +237,7 @@
       }
     }
 
-    if (ci === 6) {
+    if (ci === 7) {
       s.stars = [4, 8];
       s.chatPos = 0;
       s.active = 0;
@@ -220,7 +249,7 @@
       s.panel = 1 - out(seg(t, hide, hide + 0.45)) + out(seg(t, show, show + 0.45));
     }
 
-    if (ci === 7) {
+    if (ci === 8) {
       // In the panel: Cmd+↓ to the last question, Enter jumps there; Cmd+↑
       // back to the first, Enter again.
       s.stars = [4, 8];
@@ -244,10 +273,24 @@
       else if (t >= 1.95) s.flash = { index: N - 1, at: 2.8 };
     }
 
-    if (ci === 8) {
+    if (ci === 9) {
+      // Back to this chat later: claude.ai opens it at the end, and the
+      // extension offers the question you were reading.
       s.stars = [4, 8];
-      s.chatPos = 0;
-      s.active = 0;
+      const open = 1.2;
+      const take = 3.2;
+      s.cursor = cursorPath(t, [[0, 'chat'], [0.9, 'side'], [open + 0.5, 'side'], [2.9, 'resume']]);
+      s.click = clickAt(t, [open, take]);
+      s.chatPos = t < open ? 0 : lerp(N - 1, 3, inOut(seg(t, take + 0.05, take + 1.3)));
+      s.active = t < open ? 0 : t < take ? N - 1 : 3;
+      s.resume = out(seg(t, open + 0.6, open + 1.1)) * (1 - inOut(seg(t, take, take + 0.25)));
+      if (t >= take) s.flash = { index: 3, at: take + 1.1 };
+    }
+
+    if (ci === 10) {
+      s.stars = [4, 8];
+      s.chatPos = 3;
+      s.active = 3;
       s.cursor = cursorPath(t, [[0, 'chat']]);
       s.dark = t >= 1.0;
     }
@@ -313,6 +356,7 @@
               <div class="s-tail"></div>
             </div>
             <div class="s-loader"><span class="s-spin"></span>Loading earlier messages…</div>
+            <div class="s-resume"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg>Continue where you left off<span>${esc(CHAT[3].q)}</span><i>×</i></div>
             <div class="s-input">Reply</div>
           </div>
         </section>
@@ -354,6 +398,8 @@
   const filterBox = $('.s-filter');
   const starBtn = $('.s-starbtn');
   const loader = $('.s-loader');
+  const resumeEl = $('.s-resume');
+  const sideOn = $('.s-side-i.on');
   const keys = $('.s-keys');
   const cursor = $('.s-cursor');
   const ripple = $('.s-ripple');
@@ -382,6 +428,8 @@
     if (name === 'chat') return { x: 600, y: 380 };
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
+    if (name === 'side') return pointOf(sideOn, 0.4, 0.55);
+    if (name === 'resume') return pointOf(resumeEl, 0.3, 0.55);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
     const [kind, i] = name.split(':');
     const row = rows[+i];
@@ -428,6 +476,8 @@
       el.firstChild.style.transform = `translateX(${lerp(-100, 100, inOut(sweep))}%)`;
     });
     loader.style.opacity = s.loading;
+    // Slides down from above the view (no fade, like the extension's).
+    resumeEl.style.transform = `translate(-50%, ${lerp(-64, 0, s.resume)}px)`;
     loader.style.transform = `translate(-50%, ${lerp(-10, 0, s.loading)}px)`;
 
     // Panel.
