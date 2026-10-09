@@ -594,6 +594,29 @@ export function createPanel({
     });
   }
 
+  // After a button is pressed with Enter or Space (a click with no pointer,
+  // detail 0), nothing in the panel shows a focus ring until the keyboard
+  // navigates again (Tab, the arrows): the ring is for finding the way, not
+  // for what was just picked, nor for where that put the focus.
+  listen<MouseEvent>(
+    host,
+    'click',
+    (e) => {
+      if (e.detail === 0 && e.composedPath().some((n) => n instanceof HTMLButtonElement)) {
+        host.setAttribute('data-picked', '');
+      }
+    },
+    true
+  );
+  listen<KeyboardEvent>(
+    host,
+    'keydown',
+    (e) => {
+      if (e.key === 'Tab' || e.key.startsWith('Arrow')) host.removeAttribute('data-picked');
+    },
+    true
+  );
+
   // Capture phase on window so we see the shortcut before Claude's handlers.
   listen<KeyboardEvent>(
     window,

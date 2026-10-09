@@ -154,6 +154,12 @@ button:focus-visible {
   outline-offset: -2px;
 }
 
+/* After Enter or Space pressed a button: no ring anywhere until the keyboard
+   navigates again (see panel.ts). The text field keeps its focus border. */
+:host([data-picked]) :is(button, .resizer):focus-visible {
+  outline: none;
+}
+
 .icon-btn {
   width: 28px;
   height: 28px;
