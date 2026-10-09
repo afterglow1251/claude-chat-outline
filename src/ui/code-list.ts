@@ -86,7 +86,7 @@ function row(b: CodeBlock, index: number, tools: ListTools): HTMLLIElement {
     h('span', { className: 'code-meta' }, [`Question ${b.question + 1}${more}`]),
   ]);
   return h('li', { className: 'code-row', 'data-index': String(index) }, [
-    h('div', { className: 'code-head' }, [jump, tools.starButton(), copyBtn]),
+    h('div', { className: 'code-head' }, [jump, copyBtn, tools.starButton()]),
     h('pre', { className: 'code-preview' }, [preview(b.code)]),
   ]);
 }
