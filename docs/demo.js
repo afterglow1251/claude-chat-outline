@@ -356,7 +356,7 @@
               <div class="s-tail"></div>
             </div>
             <div class="s-loader"><span class="s-spin"></span>Loading earlier messages…</div>
-            <div class="s-resume"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg>Continue where you left off<span>${esc(CHAT[3].q)}</span><i>×</i></div>
+            <div class="s-resume"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg><p><b>Continue where you left off</b><span>4. ${esc(CHAT[3].q)}</span></p><i>×</i></div>
             <div class="s-input">Reply</div>
           </div>
         </section>
@@ -477,7 +477,7 @@
     });
     loader.style.opacity = s.loading;
     // Slides down from above the view (no fade, like the extension's).
-    resumeEl.style.transform = `translate(-50%, ${lerp(-64, 0, s.resume)}px)`;
+    resumeEl.style.transform = `translate(-50%, ${lerp(-80, 0, s.resume)}px)`;
     loader.style.transform = `translate(-50%, ${lerp(-10, 0, s.loading)}px)`;
 
     // Panel.

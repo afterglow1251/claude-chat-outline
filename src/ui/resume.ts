@@ -21,11 +21,15 @@ export function createResumePill(
   onPick: (index: number) => void,
   onDismiss: () => void
 ): ResumePill {
+  // Two lines: what clicking does, then which question it goes to.
+  const num = h('span', { className: 'resume-num' });
   const label = h('span', { className: 'resume-label' });
   const go = h('button', { type: 'button', className: 'resume-go' }, [
     icon(ICON_UP),
-    h('span', {}, ['Continue where you left off']),
-    label,
+    h('span', { className: 'resume-text' }, [
+      h('span', { className: 'resume-title' }, ['Continue where you left off']),
+      h('span', { className: 'resume-q' }, [num, label]),
+    ]),
   ]);
   const close = h('button', { type: 'button', className: 'resume-close', 'aria-label': 'Dismiss', title: 'Dismiss' }, [
     icon(ICON_CLOSE),
@@ -58,6 +62,7 @@ export function createResumePill(
     const fresh = !current;
     if (current && current.index === offer.index && current.label === offer.label && clipEl === clip) return;
     current = offer;
+    num.textContent = `${offer.index + 1}.`;
     label.textContent = offer.label;
     go.title = `Back to question ${offer.index + 1}: ${offer.label}`;
     if (clip !== clipEl || fresh) {

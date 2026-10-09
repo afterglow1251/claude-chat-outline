@@ -505,9 +505,9 @@ li:has(:focus-visible) .star,
   pointer-events: auto; /* the layer it is drawn in lets clicks through */
   display: flex;
   align-items: center;
-  max-width: min(520px, calc(100vw - 32px));
-  padding: 2px;
-  border-radius: 999px;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 4px;
+  border-radius: 14px;
   transform: translate(-50%, -8px);
   transition: transform 0.2s ease-out;
 }
@@ -519,7 +519,7 @@ li:has(:focus-visible) .star,
 .resume button {
   display: flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: 10px;
 }
 
 .resume button:hover {
@@ -527,10 +527,35 @@ li:has(:focus-visible) .star,
 }
 
 .resume-go {
-  gap: 8px;
+  gap: 10px;
+  flex: 1;
   min-width: 0;
-  padding: 5px 6px 5px 12px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.resume-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.resume-title {
+  font-weight: 500;
+}
+
+.resume-q {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--co-muted);
   white-space: nowrap;
+}
+
+.resume-num {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .resume-go svg {
@@ -544,7 +569,6 @@ li:has(:focus-visible) .star,
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--co-muted);
 }
 
 .resume-close {
