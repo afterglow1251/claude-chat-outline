@@ -15,7 +15,7 @@ import * as S from '../core/selectors';
 import * as Sources from '../data/sources';
 import { LOCATION_EVENT } from '../core/events';
 import { watchConversations } from '../data/intercept';
-import type { ApiQuestion, Entry, View } from '../core/types';
+import type { ApiQuestion, DiagramFinder, Entry, View } from '../core/types';
 import { LOG, safe, warnOnce } from '../core/util';
 import { createActiveTracker, mounted, type ActiveTracker } from './active';
 import {
@@ -68,7 +68,8 @@ const debugState = {
 export interface Session {
   start(): Promise<void>;
   stop(): void;
-  scrollTo(index: number): Promise<void>;
+  /** Jumps to a question, or on to a diagram in its answer (see Seeker.scrollTo). */
+  scrollTo(index: number, diagram?: DiagramFinder): Promise<void>;
   /** Jumps to the next (1) or previous (-1) question from the one being read. */
   step(delta: 1 | -1): void;
   /** Takes the offer to go back to where you were (an index), or dismisses it (null). */

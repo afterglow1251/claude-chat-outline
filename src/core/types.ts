@@ -32,6 +32,19 @@ export interface Diagram {
   question: number;
 }
 
+/** Which diagram of an answer to bring on screen: the `nth` (from 0) with this title. */
+export interface DiagramTarget {
+  kind: DiagramKind;
+  title: string;
+  nth: number;
+}
+
+/**
+ * Finds a diagram in the chat, given the turn of the question it answers
+ * (null while that is not rendered: the diagram found before, if still there).
+ */
+export type DiagramFinder = (questionTurn: HTMLElement | null) => HTMLElement | null;
+
 /** A question rendered in the page right now. */
 export interface RenderedItem {
   target: HTMLElement;

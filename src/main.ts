@@ -3,6 +3,7 @@
 import { DEBUG_EVENT } from './core/events';
 import { isConversationPath } from './outline/extract';
 import { createSession, debugReport, renderedTurns, watchLocation, type Session } from './outline/outline';
+import { diagramFinder } from './outline/diagrams';
 import { createPanel, HOST_ID, type Panel } from './ui/panel';
 import { conversationId, fetchDiagrams, pruneCache } from './data/sources';
 
@@ -14,6 +15,7 @@ let sessionKey: string | null = null; // which conversation the session belongs 
 function boot() {
   panel = createPanel({
     onSelect: (index) => session?.scrollTo(index),
+    onSelectDiagram: (index, target) => session?.scrollTo(index, diagramFinder(target)),
     onStep: (delta) => session?.step(delta),
     onResume: (index) => session?.resume(index),
     onLoadAll: () => session?.loadAll(),

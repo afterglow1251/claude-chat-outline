@@ -10,7 +10,7 @@
 // so a chat full of animations costs nothing while you don't look at them.
 // React artifacts are listed by name.
 import { h, icon } from '../core/dom';
-import type { Diagram, DiagramKind } from '../core/types';
+import type { Diagram, DiagramKind, DiagramTarget } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
 
 const KIND_LABEL: Record<DiagramKind, string> = {
@@ -29,6 +29,10 @@ const RENDER_WIDTH = 680;
 const RENDER_MAX_HEIGHT = 2000;
 const HEIGHT_GUESS = 400; // until the preview reports its own
 const MOUNT_MARGIN = '200px 0px'; // started a little before they scroll in
+// Diagrams this tab has already received, by conversation (most recent
+// last): shown at once on coming back, while they are asked for again.
+const KNOWN_MAX_CHATS = 20;
+const known = new Map<string, Diagram[]>();
 
 const TEXT = {
   none: 'No diagrams in this chat.',
@@ -49,8 +53,8 @@ export interface DiagramList {
 
 export interface DiagramListOptions {
   load(convId: string): Promise<Diagram[] | null>;
-  /** A diagram was picked: the index of the question it answers. */
-  onSelect(question: number): void;
+  /** A diagram was picked: the question it answers, and which diagram of the answer. */
+  onSelect(question: number, target: DiagramTarget): void;
   /** How many diagrams the chat has, or null while not known. */
   onCount(count: number | null): void;
   /** The panel's theme, which live previews are drawn in. */
@@ -155,7 +159,7 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
 
   // ----- rows ---------------------------------------------------------------
 
-  function row(d: Diagram): HTMLLIElement {
+  function row(d: Diagram, index: number): HTMLLIElement {
     let preview: HTMLElement | null = null;
     if (d.kind === 'svg') preview = thumbnail(d.source);
     else if (isLive(d.kind)) {
@@ -173,10 +177,7 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
         h('span', { className: 'diagram-meta' }, [`${KIND_LABEL[d.kind]} · question ${d.question + 1}`]),
       ]),
     ]);
-    return h('li', { className: 'diagram-row', 'data-question': String(d.question) }, [
-      ...(preview ? [preview] : []),
-      button,
-    ]);
+    return h('li', { className: 'diagram-row', 'data-index': String(index) }, [...(preview ? [preview] : []), button]);
   }
 
   function release() {
@@ -206,6 +207,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     if (!convId) return;
     const id = convId;
     const mine = ++request;
+    const remembered = known.get(id);
+    if (remembered && !diagrams) draw(remembered);
     let next: Diagram[] | null = null;
     try {
       next = await load(id);
@@ -215,11 +218,26 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     if (mine !== request || convId !== id) return;
     // A failed reload keeps the list that was shown.
     if (next || !diagrams) draw(next);
+    // The list shown (the remembered objects when nothing changed: the
+    // previews' heights are kept by object).
+    if (next && diagrams) {
+      known.delete(id);
+      known.set(id, diagrams);
+      if (known.size > KNOWN_MAX_CHATS) known.delete(known.keys().next().value!);
+    }
+  }
+
+  // Which of the answer's diagrams with this title it is (they can repeat).
+  function target(index: number): DiagramTarget {
+    const d = diagrams![index];
+    const nth = diagrams!.slice(0, index).filter((o) => o.question === d.question && o.title === d.title).length;
+    return { kind: d.kind, title: d.title, nth };
   }
 
   list.addEventListener('click', (e) => {
     const li = (e.target as Element).closest<HTMLElement>('.diagram-row');
-    if (li) onSelect(Number(li.dataset.question));
+    const index = Number(li?.dataset.index);
+    if (li && diagrams?.[index]) onSelect(diagrams[index].question, target(index));
   });
 
   return {

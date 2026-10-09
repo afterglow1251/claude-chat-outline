@@ -10,7 +10,7 @@ import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import { createDiagramList } from './diagram-list';
 import * as S from '../core/selectors';
-import type { Diagram, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
+import type { Diagram, DiagramTarget, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
 export { HOST_ID };
 const SITE_URL = 'https://afterglow1251.github.io/claude-chat-outline/';
@@ -143,6 +143,8 @@ function detectTheme(): Theme {
 
 export interface PanelCallbacks {
   onSelect(index: number): void;
+  /** A diagram was picked: jump to it, in the answer to question `index`. */
+  onSelectDiagram(index: number, target: DiagramTarget): void;
   /** Cmd/Ctrl+Shift+↑ / ↓: the previous (-1) or next (1) question. */
   onStep(delta: 1 | -1): void;
   /** The offer to continue where you left off was taken (an index) or dismissed (null). */
@@ -176,6 +178,7 @@ function editingText(e: KeyboardEvent): boolean {
 
 export function createPanel({
   onSelect,
+  onSelectDiagram,
   onStep,
   onResume,
   onLoadAll,
@@ -268,7 +271,7 @@ export function createPanel({
   const questions = createQuestionList({ onSelect });
   const diagrams = createDiagramList({
     load: loadDiagrams,
-    onSelect,
+    onSelect: onSelectDiagram,
     onCount(n) {
       state.diagramCount = n;
       renderCount();
