@@ -1,22 +1,22 @@
 // Outline session: everything that lives for one conversation. It owns the
-// feed, the ledger and their observers, merges the API, the cache and the
-// page into one list, and wires the active tracker, the seeker (jumps) and
-// the loader ("Load all") to it. Also route-change watching and the debug
-// report. Never writes to Claude's DOM; the highlight on the question you
-// jump to is drawn by the panel (see highlight.ts).
+// feed, the ledger and their observers, merges the store (claude.ai's list,
+// cached) and the page into one list, and wires the active tracker, the
+// seeker (jumps) and the loader ("Load all") to it. Also route-change
+// watching and the debug report. Never writes to Claude's DOM; the
+// highlight on the question you jump to is drawn by the panel (see
+// highlight.ts).
 //
 // claude.ai virtualizes the message list: only the turns near the viewport
 // are in the DOM, and they are unmounted again as you scroll. So the outline
 // is not "what is rendered" but a ledger of the conversation's questions:
-// taken from claude.ai's own API when possible (complete at once), from a
-// per-chat cache, and from everything rendered so far. Entries are never
-// dropped because their message is not rendered right now.
+// taken from claude.ai when possible (complete at once; see store.ts for
+// where it comes from), and from everything rendered so far. Entries are
+// never dropped because their message is not rendered right now.
 import * as S from '../core/selectors';
-import * as Sources from '../data/sources';
+import * as Store from '../data/store';
 import { LOCATION_EVENT } from '../core/events';
-import { watchConversations } from '../data/intercept';
 import type { ApiQuestion, Entry, View } from '../core/types';
-import { LOG, safe, warnOnce } from '../core/util';
+import { LOG, safe } from '../core/util';
 import { createActiveTracker, mounted, type ActiveTracker } from './active';
 import {
   collect,
@@ -41,11 +41,6 @@ const REBUILD_MAX_WAIT_MS = 1000;
 const CACHE_WAIT_MS = 500;
 const SAVE_DELAY_MS = 1000;
 const API_MIN_INTERVAL_MS = 4000;
-// Complete lists this tab has already received, by conversation (most
-// recent last): going back to a chat shows its list at once instead of
-// waiting for claude.ai to send the whole conversation again.
-const KNOWN_MAX_CHATS = 20;
-const known = new Map<string, readonly ApiQuestion[]>();
 // Stepping up from a question scrolled further than this above the line
 // goes back to that question's own start first.
 const STEP_INSIDE_PX = 16;
@@ -53,13 +48,13 @@ const STEP_INSIDE_PX = 16;
 // ---------------------------------------------------------------------------
 // Session: everything that lives for one conversation. convId is the
 // conversation id from the URL (the session lives as long as that id stays
-// the same; it is the cache key and the API key).
+// the same; it is the store's key).
 // ---------------------------------------------------------------------------
 
 // Shared with debugReport().
 const debugState = {
   convId: null as string | null,
-  source: 'none' as 'none' | 'page' | 'cache' | 'memory' | 'api' | 'claude.ai response',
+  source: 'none' as 'none' | Store.Source,
   api: 'not tried',
   questions: 0,
   rendered: 0,
@@ -108,16 +103,14 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
   let acquireFrame = 0;
   let complete = false; // the list is known to be complete
-  let fresh = false; // the list came from claude.ai during this session
   let apiState: 'idle' | 'loading' | 'ok' | 'failed' = 'idle';
   let apiLast = 0;
   let apiTimer: ReturnType<typeof setTimeout> | undefined;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let savedVersion = 0;
-  let unwatchConversations: (() => void) | null = null;
+  let unsubscribe: (() => void) | null = null;
   const coverage = createCoverage();
   const ledger = createLedger();
-  const cache = convId ? Sources.createCache(convId) : null;
   const resume = convId ? createResume(convId, view) : null;
   let unlistenUserScroll: (() => void) | null = null;
   const seeker = createSeeker({
@@ -146,35 +139,26 @@ export function createSession(view: View, convId: string | null, leftover?: Read
 
   async function start() {
     Object.assign(debugState, { convId, source: 'page', api: 'not tried', questions: 0, rendered: 0 });
-    // 0. The conversation claude.ai itself loads (relayed by page-bridge.ts):
-    // complete, and needs no request of our own. May arrive at any time,
-    // including right now if the page loaded it before we started.
-    unwatchConversations = watchConversations((payload) => {
-      if (payload.convId === convId && !stopped) applyQuestions(payload.questions, 'claude.ai response');
-    });
-    // 1. The complete list from an earlier visit in this tab: final at
-    // once. Still asked for again below, in the background.
-    const remembered = convId ? known.get(convId) : undefined;
-    if (remembered) {
-      ledger.setAuthoritative(remembered);
-      complete = true;
-      debugState.source = 'memory';
-    }
-    // 2. What we remembered from an earlier visit: shown immediately.
-    if (cache) {
-      const record = await Promise.race([
-        cache.load(),
+    // 1. What the store knows, from this tab or an earlier visit: shown
+    // immediately. What changes later comes through the subscription
+    // (claude.ai loading the conversation itself, or a request of ours).
+    if (convId) {
+      unsubscribe = Store.subscribe(convId, onConversation);
+      const known = await Promise.race([
+        Store.open(convId),
         new Promise<null>((r) => setTimeout(() => r(null), CACHE_WAIT_MS)),
       ]).catch(() => null);
       if (stopped) return;
-      if (record && record.items.length && !ledger.isAuthoritative()) {
-        ledger.seed(record.items);
-        complete = record.complete;
+      const q = known?.questions;
+      if (q?.fromApi) applyQuestions(q.items, known!.source ?? 'storage');
+      else if (q && q.items.length && !ledger.isAuthoritative()) {
+        ledger.seed(q.items);
+        complete = q.complete;
         savedVersion = ledger.version;
-        debugState.source = 'cache';
+        debugState.source = 'storage';
       }
     }
-    // 3. What is rendered.
+    // 2. What is rendered.
     // Claude may replace the feed node (e.g. when switching chats). This
     // observer only does an O(1) isConnected check per batch while the
     // feed is healthy, and re-queries for it once it is gone.
@@ -194,9 +178,11 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     // A real scroll by the user ends any programmatic seek.
     unlistenUserScroll = seeker.listen();
     acquireFeed();
-    // 4. Our own request to claude.ai's API, unless claude.ai's response
-    // already gave us the list.
-    if (!fresh) refreshFromApi();
+    // 3. claude.ai's list: checked behind one already shown, asked for
+    // right away otherwise.
+    if (!convId) return;
+    if (ledger.isAuthoritative()) Store.revalidate(convId);
+    else refreshFromApi();
   }
 
   function acquireFeed() {
@@ -309,21 +295,22 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     seeker.scrollTo(to);
   }
 
-  // ----- cache --------------------------------------------------------------
+  // ----- page-only list ------------------------------------------------------
+  // claude.ai's list is kept by the store itself. A list built from the page
+  // (the API unavailable) is handed to it for the next visit.
 
   function scheduleSave() {
-    if (!cache || ledger.version === savedVersion || saveTimer) return;
+    if (!convId || ledger.isAuthoritative() || ledger.version === savedVersion || saveTimer) return;
     saveTimer = setTimeout(saveNow, SAVE_DELAY_MS);
   }
 
   function saveNow() {
     clearTimeout(saveTimer);
     saveTimer = undefined;
-    if (!cache || !items.length) return;
+    if (!convId || !items.length || ledger.isAuthoritative()) return;
     savedVersion = ledger.version;
-    // Pending questions (sent after the last API answer) are saved too; the
-    // next API answer corrects the list anyway.
-    cache.save(
+    Store.savePageList(
+      convId,
       items.map((e) => e.full),
       complete
     );
@@ -335,41 +322,36 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     if (!convId || apiState === 'loading') return false;
     apiState = 'loading';
     debugState.api = 'loading';
-    let texts: ApiQuestion[] | null = null;
-    try {
-      texts = await Sources.fetchQuestions(convId);
-    } catch (err) {
-      warnOnce('conversation API', err);
-    }
+    // The answer itself comes through the subscription, before this resolves.
+    const answered = await Store.refresh(convId);
     apiLast = performance.now();
     if (stopped) return false;
-    if (texts && applyQuestions(texts, 'api')) {
+    if (answered && ledger.isAuthoritative()) {
       apiState = 'ok';
-      debugState.api = `ok (${texts.length} questions)`;
+      debugState.api = `ok (${items.length} questions)`;
       return true;
     }
     apiState = 'failed';
-    debugState.api = texts ? 'empty answer' : 'unavailable (see warning above)';
+    debugState.api = answered ? 'empty answer' : 'unavailable (see warning above)';
     rebuild(); // the page-only list is final now (see RenderResult.settled)
     return false;
   }
 
-  // The complete list of questions, from the API or claude.ai's response.
-  function applyQuestions(texts: readonly ApiQuestion[], source: 'api' | 'claude.ai response'): boolean {
+  // claude.ai answered (itself, or a request of ours).
+  function onConversation(conversation: Store.Conversation) {
+    const q = conversation.questions;
+    if (!stopped && q?.fromApi) applyQuestions(q.items, conversation.source ?? 'api');
+  }
+
+  // claude.ai's complete list of questions.
+  function applyQuestions(texts: readonly ApiQuestion[], source: Store.Source) {
     // An empty answer for a chat that shows messages is not believable
     // (a brand-new chat the API has not caught up with yet).
-    if (!texts.length && items.length) return false;
+    if (!texts.length && items.length) return;
     debugState.source = source;
     ledger.setAuthoritative(texts);
-    complete = fresh = true;
-    if (convId) {
-      known.delete(convId);
-      known.set(convId, texts);
-      if (known.size > KNOWN_MAX_CHATS) known.delete(known.keys().next().value!);
-    }
+    complete = true;
     rebuild();
-    saveNow();
-    return true;
   }
 
   // A question appeared that the API answer did not have (you just sent
@@ -389,8 +371,8 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     stopped = true;
     loader.cancel();
     seeker.cancel();
-    unwatchConversations?.();
-    unwatchConversations = null;
+    unsubscribe?.();
+    unsubscribe = null;
     if (bodyObserver) bodyObserver.disconnect();
     if (feedObserver) feedObserver.disconnect();
     if (tracker) tracker.destroy();

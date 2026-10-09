@@ -1,17 +1,17 @@
-// Where questions come from besides the DOM:
+// The raw sources besides the DOM, with no policy of their own (the cache
+// built on them is store.ts):
 //  - claude.ai's own conversation API (same origin, your existing session),
 //    which knows every message, including ones the page has not rendered;
-//  - a per-conversation cache in chrome.storage.local, so a chat you have
-//    seen before is listed in full the moment you open it again.
+//  - chrome.storage.local, for what is kept between visits.
 // Nothing here talks to any server other than claude.ai itself.
 import { parseConversation, parseDiagrams } from './conversation';
 import type { ApiQuestion, Diagram } from '../core/types';
 import { warnOnce } from '../core/util';
 
-const CACHE_PREFIX = 'outline-cache:';
+/** Key prefix of each conversation's stored questions (see store.ts). */
+export const CACHE_PREFIX = 'outline-cache:';
 const CACHE_MAX_CHATS = 200;
 const CACHE_MAX_AGE_MS = 90 * 24 * 3600 * 1000;
-const CACHE_FULL_MAX = 400; // characters kept per question (tooltip text)
 const API_TIMEOUT_MS = 10000;
 
 export function conversationId(pathname: string): string | null {
@@ -26,7 +26,7 @@ export function conversationId(pathname: string): string | null {
 
 type StorageValues = Record<string, unknown>;
 
-function storageGet(keys: string | StorageValues | null): Promise<StorageValues> {
+export function storageGet(keys: string | StorageValues | null): Promise<StorageValues> {
   return new Promise((resolve) => {
     try {
       chrome.storage.local.get(keys, (values) => {
@@ -40,7 +40,7 @@ function storageGet(keys: string | StorageValues | null): Promise<StorageValues>
   });
 }
 
-function storageSet(values: StorageValues): void {
+export function storageSet(values: StorageValues): void {
   try {
     chrome.storage.local.set(values);
   } catch (err) {
@@ -54,47 +54,6 @@ function storageRemove(keys: string[]): void {
   } catch (err) {
     warnOnce('storage remove', err);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Cache
-// ---------------------------------------------------------------------------
-
-export interface CacheRecord {
-  items: string[];
-  complete: boolean;
-}
-
-interface StoredRecord {
-  t?: number;
-  items?: unknown;
-  complete?: unknown;
-}
-
-export interface Cache {
-  load(): Promise<CacheRecord | null>;
-  save(fulls: string[], complete: boolean): void;
-}
-
-export function createCache(convId: string): Cache {
-  const key = CACHE_PREFIX + convId;
-  let lastJson = '';
-  return {
-    async load() {
-      const record = (await storageGet({ [key]: null }))[key] as StoredRecord | null | undefined;
-      if (!record || !Array.isArray(record.items)) return null;
-      const items = record.items.filter((t): t is string => typeof t === 'string');
-      lastJson = JSON.stringify({ items, complete: !!record.complete });
-      return { items, complete: !!record.complete };
-    },
-    save(fulls, complete) {
-      const items = fulls.map((t) => t.slice(0, CACHE_FULL_MAX));
-      const json = JSON.stringify({ items, complete: !!complete });
-      if (json === lastJson) return;
-      lastJson = json;
-      storageSet({ [key]: { t: Date.now(), items, complete: !!complete } });
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +106,7 @@ export async function pruneCache(): Promise<void> {
   for (const prefix of [CACHE_PREFIX, PLACE_PREFIX]) {
     const records = Object.keys(all)
       .filter((k) => k.startsWith(prefix))
-      .map((k) => ({ k, t: (all[k] as StoredRecord | null)?.t || 0 }))
+      .map((k) => ({ k, t: (all[k] as { t?: number } | null)?.t || 0 }))
       .toSorted((a, b) => b.t - a.t);
     storageRemove(records.filter((r, i) => i >= CACHE_MAX_CHATS || now - r.t > CACHE_MAX_AGE_MS).map((r) => r.k));
   }
@@ -218,22 +177,21 @@ async function fetchConversation<T>(convId: string, parse: (data: unknown) => T 
   return null;
 }
 
-/** Each question in order, or null if the API is unavailable. */
-export async function fetchQuestions(convId: string): Promise<ApiQuestion[] | null> {
-  try {
-    return await fetchConversation(convId, parseConversation);
-  } catch (err) {
-    warnOnce('conversation API unavailable, using the page only', err);
-    return null;
-  }
+export interface ConversationParts {
+  questions: ApiQuestion[];
+  diagrams: Diagram[];
 }
 
-/** Claude's diagrams in order, or null if the API is unavailable. */
-export async function fetchDiagrams(convId: string): Promise<Diagram[] | null> {
+/** Your questions and Claude's diagrams, read from one response, or null if the API is unavailable. */
+export async function fetchConversationParts(convId: string): Promise<ConversationParts | null> {
   try {
-    return await fetchConversation(convId, parseDiagrams);
+    return await fetchConversation(convId, (data) => {
+      const questions = parseConversation(data);
+      const diagrams = parseDiagrams(data);
+      return questions && diagrams ? { questions, diagrams } : null;
+    });
   } catch (err) {
-    warnOnce('conversation API unavailable, no diagrams', err);
+    warnOnce('conversation API unavailable, using the page only', err);
     return null;
   }
 }

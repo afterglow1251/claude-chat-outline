@@ -4,12 +4,14 @@ import { DEBUG_EVENT } from './core/events';
 import { isConversationPath } from './outline/extract';
 import { createSession, debugReport, renderedTurns, watchLocation, type Session } from './outline/outline';
 import { createPanel, HOST_ID, type Panel } from './ui/panel';
-import { conversationId, fetchDiagrams, pruneCache } from './data/sources';
+import { conversationId, pruneCache } from './data/sources';
+import { watchClaude } from './data/store';
 
 let panel: Panel | null = null;
 let session: Session | null = null;
 let routes: { stop(): void } | null = null;
 let sessionKey: string | null = null; // which conversation the session belongs to
+let unwatchClaude: (() => void) | null = null;
 
 function boot() {
   panel = createPanel({
@@ -18,8 +20,10 @@ function boot() {
     onResume: (index) => session?.resume(index),
     onLoadAll: () => session?.loadAll(),
     onCancelLoad: () => session?.cancelLoad(),
-    loadDiagrams: (convId) => fetchDiagrams(convId),
   });
+  // Before the first session: the conversation the page has already loaded
+  // is relayed again right away.
+  unwatchClaude = watchClaude();
   routes = watchLocation(onRouteChange);
   document.addEventListener(DEBUG_EVENT, debugReport);
   onRouteChange();
@@ -51,9 +55,10 @@ function onRouteChange() {
 function teardown() {
   session?.stop();
   routes?.stop();
+  unwatchClaude?.();
   panel?.destroy();
   document.removeEventListener(DEBUG_EVENT, debugReport);
-  session = routes = panel = null;
+  session = routes = panel = unwatchClaude = null;
   sessionKey = null;
 }
 

@@ -1,6 +1,7 @@
 // The panel's Diagrams view: what Claude drew in this chat (its inline
-// visuals, and SVG, Mermaid, HTML and React artifacts). Read from claude.ai's
-// API each time the view is opened, never in the background. Clicking one
+// visuals, and SVG, Mermaid, HTML and React artifacts), from the store
+// (store.ts): what it knows is shown at once when the view is opened, and
+// checked again with claude.ai then, never in the background. Clicking one
 // jumps to the question whose answer has it.
 //
 // Previews: an SVG artifact is an <img>, so nothing in it runs. Visuals,
@@ -12,6 +13,7 @@
 import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
+import * as Store from '../data/store';
 
 const KIND_LABEL: Record<DiagramKind, string> = {
   svg: 'SVG',
@@ -48,7 +50,6 @@ export interface DiagramList {
 }
 
 export interface DiagramListOptions {
-  load(convId: string): Promise<Diagram[] | null>;
   /** A diagram was picked: the index of the question it answers. */
   onSelect(question: number): void;
   /** How many diagrams the chat has, or null while not known. */
@@ -57,21 +58,18 @@ export interface DiagramListOptions {
   theme(): 'light' | 'dark';
 }
 
-const same = (a: readonly Diagram[], b: readonly Diagram[]) =>
-  a.length === b.length &&
-  a.every(
-    (d, i) => d.kind === b[i].kind && d.title === b[i].title && d.question === b[i].question && d.source === b[i].source
-  );
+// Opening the view again within this time shows what was read, unasked.
+const MAX_AGE_MS = 5000;
 
 const setHeight = (box: HTMLElement, height: number) => box.style.setProperty('--h', `${height}px`);
 
 const isLive = (kind: DiagramKind): kind is PreviewMessage['kind'] =>
   kind === 'widget' || kind === 'html' || kind === 'mermaid';
 
-export function createDiagramList({ load, onSelect, onCount, theme }: DiagramListOptions): DiagramList {
+export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptions): DiagramList {
   let convId: string | null = null;
-  let diagrams: Diagram[] | null = null;
-  let request = 0; // the latest load; older answers are dropped
+  let diagrams: readonly Diagram[] | null = null;
+  let unsubscribe: (() => void) | null = null; // following the store, once the view was opened
   let urls: string[] = []; // thumbnails' blob URLs, released on every redraw
   const live = new Map<Element, Diagram>(); // preview box -> its diagram
   const frames = new Map<MessageEventSource, HTMLElement>(); // mounted preview -> its box
@@ -192,9 +190,10 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     message.textContent = text;
   }
 
-  function draw(next: Diagram[] | null) {
-    // The same diagrams again: nothing to redraw, so no preview restarts.
-    if (next && diagrams && same(next, diagrams)) return;
+  function draw(next: readonly Diagram[] | null) {
+    // The same diagrams again (the store keeps an unchanged list as is):
+    // nothing to redraw, so no preview restarts.
+    if (next && next === diagrams) return;
     diagrams = next;
     release();
     list.replaceChildren(...(next ?? []).map(row));
@@ -205,16 +204,13 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
   async function show() {
     if (!convId) return;
     const id = convId;
-    const mine = ++request;
-    let next: Diagram[] | null = null;
-    try {
-      next = await load(id);
-    } catch {
-      next = null;
-    }
-    if (mine !== request || convId !== id) return;
-    // A failed reload keeps the list that was shown.
-    if (next || !diagrams) draw(next);
+    unsubscribe ??= Store.subscribe(id, (conversation) => conversation.diagrams && draw(conversation.diagrams));
+    const known = Store.peek(id).diagrams;
+    if (known) draw(known);
+    // The answer comes through the subscription.
+    await Store.refresh(id, MAX_AGE_MS);
+    // Unavailable: a list already shown stays.
+    if (convId === id && !diagrams) draw(null);
   }
 
   list.addEventListener('click', (e) => {
@@ -227,7 +223,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
     show,
     setConversation(id) {
       convId = id;
-      request++;
+      unsubscribe?.();
+      unsubscribe = null;
       diagrams = null;
       release();
       list.replaceChildren();
@@ -240,6 +237,8 @@ export function createDiagramList({ load, onSelect, onCount, theme }: DiagramLis
       return !!first;
     },
     destroy() {
+      unsubscribe?.();
+      unsubscribe = null;
       release();
       resize.disconnect();
       window.removeEventListener('message', onMessage);
