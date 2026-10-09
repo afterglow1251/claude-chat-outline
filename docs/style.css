@@ -466,6 +466,7 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .s-resume b { font-weight: 500; }
 .s-resume span { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--w-muted); font-size: 12px; }
 .s-resume i { font-style: normal; color: var(--w-muted); margin-left: 4px; }
+.s-resume.hover { background: var(--w-bg); }
 
 /* The panel, styled after the real one. */
 .s-panel {

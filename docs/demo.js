@@ -78,7 +78,7 @@
     { title: 'Star the ones that matter', dur: 6 },
     { title: "Reach what isn't loaded yet", dur: 7.6 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
-    { title: 'Picks up where you left off', dur: 6.4 },
+    { title: 'Picks up where you left off', dur: 9.2 },
     { title: 'Light and dark', dur: 4.2 },
   ];
   let acc = 0;
@@ -126,6 +126,8 @@
       keys: 0,
       caps: [mod, '⇧', 'O'], // the keys shown
       resume: 0, // the "Continue where you left off" pill, 0 hidden to 1 shown
+      away: false, // another chat is open (its content isn't drawn)
+      side: 0, // the chat marked in the sidebar: 0 this one, 1 "Trip to Lisbon"
       dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
       cursor: cursorPath(0, [[0, 'rest']]),
@@ -253,16 +255,27 @@
     }
 
     if (ci === 8) {
-      // Back to this chat later: claude.ai opens it at the end, and the
-      // extension offers the question you were reading.
+      // Read question 4, go to another chat, come back: claude.ai opens the
+      // chat at its end, and the extension offers question 4 again.
       s.stars = [4, 8];
-      const open = 1.2;
-      const take = 3.2;
-      s.cursor = cursorPath(t, [[0, 'chat'], [0.9, 'side'], [open + 0.5, 'side'], [2.9, 'resume']]);
-      s.click = clickAt(t, [open, take]);
-      s.chatPos = t < open ? 0 : lerp(N - 1, 3, inOut(seg(t, take + 0.05, take + 1.3)));
-      s.active = t < open ? 0 : t < take ? N - 1 : 3;
-      s.resume = out(seg(t, open + 0.6, open + 1.1)) * (1 - inOut(seg(t, take, take + 0.25)));
+      const leave = 2.3;
+      const back = 3.8;
+      const take = 5.9;
+      s.cursor = cursorPath(t, [[0, 'chat'], [1.7, 'chat'], [2.1, 'side:1'], [leave + 0.6, 'side:1'], [3.6, 'side:0'], [back + 1.2, 'side:0'], [5.6, 'resume']]);
+      s.click = clickAt(t, [leave, back, take]);
+      s.wheel = t > 0.2 && t < 1.6;
+      s.away = t >= leave && t < back;
+      s.side = s.away ? 1 : 0;
+      if (t < leave) {
+        s.chatPos = lerp(0, 3, inOut(seg(t, 0.2, 1.5)));
+        s.active = Math.floor(s.chatPos + 0.2);
+      } else {
+        // Opened again at the end, then back to question 4 from the offer.
+        s.chatPos = lerp(N - 1.6, 3, inOut(seg(t, take + 0.05, take + 1.3)));
+        s.active = t < take ? N - 1 : 3;
+      }
+      s.resume = out(seg(t, back + 0.5, back + 1.0)) * (1 - inOut(seg(t, take, take + 0.25)));
+      s.resumeHover = t > 5.4 && t < take;
       if (t >= take) s.flash = { index: 3, at: take + 1.1 };
     }
 
@@ -314,7 +327,7 @@
           <p class="s-nav"><i class="s-ico">${ICON.artifacts}</i>Artifacts</p>
           <p class="s-nav"><i class="s-ico">${ICON.more}</i>More</p>
           <p class="s-side-h">Today</p>
-          <p class="s-side-i on">Habit tracker app</p>
+          <p class="s-side-i">Habit tracker app</p>
           <p class="s-side-i">Trip to Lisbon</p>
           <p class="s-side-h">Yesterday</p>
           <p class="s-side-i">Postgres indexes</p>
@@ -322,7 +335,7 @@
           <p class="s-side-i">Sourdough timing</p>
         </aside>
         <section class="s-main">
-          <header class="s-head">Habit tracker app<i class="s-ico">${ICON.chevron}</i></header>
+          <header class="s-head"><span class="s-title">Habit tracker app</span><i class="s-ico">${ICON.chevron}</i></header>
           <div class="s-view">
             <div class="s-feed">
               ${CHAT.map(
@@ -343,6 +356,7 @@
 
       <div class="s-panel">
         <div class="s-ph"><b>Questions</b><span>${N}</span>
+          <i class="s-ic"><svg viewBox="0 0 24 24" style="stroke-width:1.9"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.4M12 17h.01"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></i>
         </div>
@@ -378,7 +392,9 @@
   const starBtn = $('.s-starbtn');
   const loader = $('.s-loader');
   const resumeEl = $('.s-resume');
-  const sideOn = $('.s-side-i.on');
+  const sideItems = [...stage.querySelectorAll('.s-side-i')];
+  const title = $('.s-title');
+  const count = $('.s-ph span');
   const keys = $('.s-keys');
   const cursor = $('.s-cursor');
   const ripple = $('.s-ripple');
@@ -407,10 +423,10 @@
     if (name === 'chat') return { x: 600, y: 380 };
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
-    if (name === 'side') return pointOf(sideOn, 0.4, 0.55);
     if (name === 'resume') return pointOf(resumeEl, 0.3, 0.55);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
     const [kind, i] = name.split(':');
+    if (kind === 'side') return pointOf(sideItems[+i], 0.4, 0.55);
     const row = rows[+i];
     if (kind === 'item') return pointOf(row.querySelector('.s-label'), 0.3, 0.6);
     if (kind === 'star') return pointOf(row.querySelector('.s-star'), 0.5, 0.55);
@@ -457,6 +473,15 @@
     loader.style.opacity = s.loading;
     // Slides down from above the view (no fade, like the extension's).
     resumeEl.style.transform = `translate(-50%, ${lerp(-80, 0, s.resume)}px)`;
+    resumeEl.classList.toggle('hover', !!s.resumeHover);
+
+    // Another chat open: the sidebar marks it, and this chat isn't drawn.
+    sideItems.forEach((el, k) => el.classList.toggle('on', k === s.side));
+    const name = s.away ? 'Trip to Lisbon' : 'Habit tracker app';
+    if (title.textContent !== name) title.textContent = name;
+    count.textContent = s.away ? '' : N;
+    feed.style.visibility = s.away ? 'hidden' : '';
+    list.style.visibility = s.away ? 'hidden' : '';
     loader.style.transform = `translate(-50%, ${lerp(-10, 0, s.loading)}px)`;
 
     // Panel.
