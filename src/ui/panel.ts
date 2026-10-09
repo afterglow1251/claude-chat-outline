@@ -468,17 +468,25 @@ export function createPanel({
   // whole strip, after a blink. A real move, not an "enter": the page
   // loading under a pointer at rest (a reload) sends one of those, and
   // the strip must not unroll by itself.
+  let pointerIn = false;
   listen<PointerEvent>(views, 'pointermove', (e) => {
+    pointerIn = true;
     if (e.movementX || e.movementY) setStrip(true);
   });
   listen(views, 'pointerleave', () => {
+    pointerIn = false;
     clearTimeout(stripTimer);
     stripTimer = setTimeout(() => setStrip(false), STRIP_CLOSE_MS);
   });
   listen(views, 'focusin', () => setStrip(true));
   listen<FocusEvent>(views, 'focusout', (e) => {
-    if (!views.contains(e.relatedTarget as Node | null)) setStrip(false);
+    if (!pointerIn && !views.contains(e.relatedTarget as Node | null)) setStrip(false);
   });
+  // The mouse never gives its buttons focus, whichever click it is: kept,
+  // the window taking focus back (a reload, a click in the browser's own
+  // bar) would hand it to the button again, and focus opens the strip.
+  // The keyboard still focuses them, to switch views without a mouse.
+  listen<MouseEvent>(views, 'mousedown', (e) => e.preventDefault());
   listen<MouseEvent>(views, 'click', (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>('.view-opt');
     if (!btn) return;
@@ -486,6 +494,8 @@ export function createPanel({
     if (!views.classList.contains('open')) return setStrip(true);
     const view = btn.dataset.view as ViewName;
     if (view !== state.view) setView(view);
+    // Focused before (the keyboard, then the mouse): let go of it too.
+    if (e.detail > 0) btn.blur();
   });
 
   // ----- rendering --------------------------------------------------------
