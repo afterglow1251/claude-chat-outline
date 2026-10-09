@@ -197,7 +197,7 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .section-head { max-width: 640px; margin-bottom: 40px; }
 .section-head h2 { margin-top: -4px; }
 
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 22px; transition: border-color 0.25s, transform 0.5s var(--spring), box-shadow 0.25s;
@@ -258,6 +258,20 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .card[data-card="keys"]:hover .mini-keys kbd:nth-child(2) { animation-delay: 0.08s; }
 .card[data-card="keys"]:hover .mini-keys kbd:nth-child(3) { animation-delay: 0.16s; }
 @keyframes press { 0%, 30% { transform: translateY(0); } 40%, 60% { transform: translateY(2px); border-bottom-width: 1px; } 75% { transform: none; } }
+
+/* step */
+.card[data-card="step"]:hover .mini-keys kbd:nth-child(1) { transform: translateY(2px); border-bottom-width: 1px; }
+.card[data-card="step"]:hover .mini-keys kbd:nth-child(2) { animation: press 1.4s var(--out) infinite; }
+.card[data-card="step"]:hover .mini-keys kbd:nth-child(3) { animation: press 1.4s var(--out) 0.7s infinite; }
+
+/* resume: solid, slides in on hover (no fade) */
+.mini-resume {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; white-space: nowrap;
+  background: var(--card); border: 1px solid var(--line-2); box-shadow: var(--shadow); font-size: 13px;
+  transform: translateY(-10px); transition: transform 0.6s var(--spring);
+}
+.mini-resume svg { width: 13px; height: 13px; fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.card[data-card="resume"]:hover .mini-resume { transform: translateY(0); }
 
 /* theme */
 .mini-theme {
@@ -328,8 +342,10 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 /* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------ */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 900px) {
   .split { grid-template-columns: 1fr; gap: 32px; }
 }
 @media (max-width: 640px) {
@@ -381,15 +397,31 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .s-url svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 
 .s-app { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; display: flex; }
-.s-side { width: 200px; flex: none; background: var(--w-side); border-right: 1px solid var(--w-line); padding: 16px 12px; }
-.s-new { display: flex; align-items: center; gap: 8px; font-weight: 500; margin-bottom: 22px; }
-.s-new b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #d97757; color: #fff; font-weight: 500; }
-.s-side-h { font-size: 12px; color: var(--w-muted); margin: 0 8px 6px; }
-.s-side-i { padding: 6px 8px; border-radius: 8px; color: var(--w-fg); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-side {
+  width: 200px; flex: none; position: relative; background: var(--w-side); border-right: 1px solid var(--w-line);
+  padding: 10px 8px; font-size: 13.5px;
+}
+.s-ico { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--w-muted); }
+.s-ico svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.s-brand { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px; margin-bottom: 8px; }
+.s-brand span { font-family: var(--serif); font-size: 21px; font-weight: 500; letter-spacing: -0.02em; }
+.s-search {
+  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; margin-bottom: 8px; border-radius: 8px;
+  background: var(--w-input); border: 1px solid var(--w-line); color: var(--w-muted);
+}
+.s-nav { display: flex; align-items: center; gap: 10px; padding: 5px 6px; }
+.s-side-h { font-size: 12px; color: var(--w-muted); margin: 16px 6px 4px; }
+.s-side-i { padding: 5px 6px; border-radius: 8px; color: var(--w-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .s-side-i.on { background: var(--w-hover); }
+.s-user { position: absolute; left: 8px; right: 8px; bottom: 10px; display: flex; align-items: center; gap: 8px; padding: 0 6px; }
+.s-user b {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--w-bubble); border: 1px solid var(--w-line); font-size: 11px; font-weight: 600;
+}
+.s-user span { color: var(--w-muted); margin-left: -4px; }
 
 .s-main { flex: 1; position: relative; min-width: 0; }
-.s-head { height: 46px; display: flex; align-items: center; padding: 0 20px; font-weight: 500; border-bottom: 1px solid var(--w-line); }
+.s-head { height: 46px; display: flex; align-items: center; gap: 6px; padding: 0 20px; font-weight: 500; }
 .s-view { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; overflow: hidden; }
 .s-feed { position: absolute; left: 36px; width: 520px; top: 0; will-change: transform; }
 .s-turn { padding-bottom: 26px; transition: opacity 0.4s; }

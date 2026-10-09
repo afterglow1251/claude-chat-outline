@@ -233,6 +233,18 @@
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
 
+  // claude.ai's sidebar and header icons, simplified.
+  const svg = (d) => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${d}"/></svg>`;
+  const ICON = {
+    sidebar: svg('M2.5 3h11v10h-11zM6 3v10'),
+    search: svg('M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.5 10.5l3 3'),
+    plus: svg('M8 3v10M3 8h10'),
+    projects: svg('M3 5.5h10v7.5H3zM4.5 3h7M5.5 8h5'),
+    artifacts: svg('M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z'),
+    more: svg('m6 4 4 4-4 4'),
+    chevron: svg('m4.5 6.5 3.5 3.5 3.5-3.5'),
+  };
+
   stage.innerHTML = `
     <div class="s-window">
       <div class="s-bar">
@@ -241,16 +253,23 @@
       </div>
       <div class="s-app">
         <aside class="s-side">
-          <div class="s-new"><b>+</b> New chat</div>
-          <p class="s-side-h">Recents</p>
+          <div class="s-brand"><i class="s-ico">${ICON.sidebar}</i><span>Claude</span></div>
+          <div class="s-search"><i class="s-ico">${ICON.search}</i>Search</div>
+          <p class="s-nav"><i class="s-ico">${ICON.plus}</i>New</p>
+          <p class="s-nav"><i class="s-ico">${ICON.projects}</i>Projects</p>
+          <p class="s-nav"><i class="s-ico">${ICON.artifacts}</i>Artifacts</p>
+          <p class="s-nav"><i class="s-ico">${ICON.more}</i>More</p>
+          <p class="s-side-h">Today</p>
           <p class="s-side-i on">Habit tracker app</p>
           <p class="s-side-i">Trip to Lisbon</p>
+          <p class="s-side-h">Yesterday</p>
           <p class="s-side-i">Postgres indexes</p>
           <p class="s-side-i">Cover letter draft</p>
           <p class="s-side-i">Sourdough timing</p>
+          <div class="s-user"><b>A</b>Alex<span>· Pro</span></div>
         </aside>
         <section class="s-main">
-          <header class="s-head">Habit tracker app</header>
+          <header class="s-head">Habit tracker app<i class="s-ico">${ICON.chevron}</i></header>
           <div class="s-view">
             <div class="s-feed">
               ${CHAT.map(
@@ -263,7 +282,7 @@
               <div class="s-tail"></div>
             </div>
             <div class="s-loader"><span class="s-spin"></span>Loading earlier messages…</div>
-            <div class="s-input">Reply to Claude…</div>
+            <div class="s-input">Reply</div>
           </div>
         </section>
       </div>
