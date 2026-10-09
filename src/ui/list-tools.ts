@@ -206,6 +206,8 @@ export function listKeys(
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
     e.stopPropagation();
+    // Moving with the keys: the focus ring is back.
+    scroller.removeAttribute('data-picked');
     const all = shown();
     const i = all.findIndex((el) => current.contains(el));
     const far = e.metaKey || e.ctrlKey;
@@ -216,12 +218,16 @@ export function listKeys(
 
   return {
     focusFirst() {
+      scroller.removeAttribute('data-picked');
       const first = shown()[0];
       first?.focus();
       return !!first;
     },
     focusRow(r) {
       r.querySelector<HTMLElement>(focusable)?.focus({ preventScroll: true });
+      // Clicked: the focus stays (for S and the arrows), its ring doesn't
+      // show until the arrows move it, as in the question list.
+      scroller.setAttribute('data-picked', '');
     },
   };
 }

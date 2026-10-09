@@ -479,7 +479,9 @@ li:hover .item {
 
 /* A question just picked keeps the focus (so the arrows go on from it),
    without the ring; the keyboard brings the ring back. */
-.scroll[data-picked] .item:focus-visible {
+.scroll[data-picked] .item:focus-visible,
+.scroll[data-picked] .diagram:focus-visible,
+.scroll[data-picked] .code-jump:focus-visible {
   outline: none;
 }
 
