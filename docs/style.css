@@ -264,14 +264,13 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .card[data-card="step"]:hover .mini-keys kbd:nth-child(3) { animation: press 1.4s var(--out) infinite; }
 .card[data-card="step"]:hover .mini-keys kbd:nth-child(4) { animation: press 1.4s var(--out) 0.7s infinite; }
 
-/* resume: solid, slides in on hover (no fade) */
-.mini-resume {
-  display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; white-space: nowrap;
-  background: var(--card); border: 1px solid var(--line-2); box-shadow: var(--shadow); font-size: 13px;
-  transform: translateY(-10px); transition: transform 0.6s var(--spring);
-}
-.mini-resume svg { width: 13px; height: 13px; fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.card[data-card="resume"]:hover .mini-resume { transform: translateY(0); }
+/* diagrams: the panel's shapes icon; on hover the shapes spread a little and one turns accent */
+.mini-shapes { width: 48px; height: 48px; overflow: visible; fill: none; stroke: var(--dim); stroke-width: 1.6; stroke-linejoin: round; }
+.mini-shapes path { transform-box: fill-box; transform-origin: center; transition: transform 0.6s var(--spring), fill 0.3s, stroke 0.3s; }
+.card[data-card="diagrams"]:hover .mini-shapes path:nth-child(1) { transform: translate(-2px, -2px); }
+.card[data-card="diagrams"]:hover .mini-shapes path:nth-child(2) { transform: translate(2px, -2px); fill: var(--accent); stroke: var(--accent); }
+.card[data-card="diagrams"]:hover .mini-shapes path:nth-child(3) { transform: translate(-2px, 2px); }
+.card[data-card="diagrams"]:hover .mini-shapes path:nth-child(4) { transform: translate(2px, 2px); }
 
 /* theme */
 .mini-theme {
@@ -456,17 +455,6 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 }
 .s-spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--w-line); border-top-color: #d97757; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.s-resume {
-  position: absolute; top: 14px; left: 296px; z-index: 2; transform: translate(-50%, -80px);
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 14px; border-radius: 14px; white-space: nowrap;
-  background: var(--w-input); border: 1px solid var(--w-line); box-shadow: var(--w-shadow); font-size: 13px; line-height: 1.4;
-}
-.s-resume svg { width: 13px; height: 13px; flex: none; fill: none; stroke: #d97757; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.s-resume p { display: flex; flex-direction: column; min-width: 0; }
-.s-resume b { font-weight: 500; }
-.s-resume span { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--w-muted); font-size: 12px; }
-.s-resume i { font-style: normal; color: var(--w-muted); margin-left: 4px; }
-.s-resume.hover { background: var(--w-bg); }
 
 /* The panel, styled after the real one. */
 .s-panel {

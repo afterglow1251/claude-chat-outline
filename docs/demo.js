@@ -80,7 +80,6 @@
     { id: 'step', title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
     { id: 'hide', title: `${mod} Shift O to hide`, dur: 4.4 },
     { id: 'theme', title: 'Light and dark', dur: 4.2 },
-    { id: 'resume', title: 'Picks up where you left off', dur: 9.2 },
   ];
   let acc = 0;
   for (const c of CHAPTERS) {
@@ -127,9 +126,6 @@
       loading: 0,
       keys: 0,
       caps: [mod, '⇧', 'O'], // the keys shown
-      resume: 0, // the "Continue where you left off" pill, 0 hidden to 1 shown
-      away: false, // another chat is open (its content isn't drawn)
-      side: 0, // the chat marked in the sidebar: 0 this one, 1 "Trip to Lisbon"
       dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
       cursor: cursorPath(0, [[0, 'rest']]),
@@ -259,32 +255,6 @@
       s.panel = 1 - out(seg(t, hide, hide + 0.45)) + out(seg(t, show, show + 0.45));
     }
 
-    if (id === 'resume') {
-      // Read question 4, go to another chat, come back: claude.ai opens the
-      // chat at its end, and the extension offers question 4 again.
-      s.stars = [4, 8];
-      s.dark = true;
-      const leave = 2.3;
-      const back = 3.8;
-      const take = 5.9;
-      s.cursor = cursorPath(t, [[0, 'chat'], [1.7, 'chat'], [2.1, 'side:1'], [leave + 0.6, 'side:1'], [3.6, 'side:0'], [back + 1.2, 'side:0'], [5.6, 'resume']]);
-      s.click = clickAt(t, [leave, back, take]);
-      s.wheel = t > 0.2 && t < 1.6;
-      s.away = t >= leave && t < back;
-      s.side = s.away ? 1 : 0;
-      if (t < leave) {
-        s.chatPos = lerp(1, 3, inOut(seg(t, 0.2, 1.5)));
-        s.active = Math.floor(s.chatPos + 0.2);
-      } else {
-        // Opened again at the end, then back to question 4 from the offer.
-        s.chatPos = lerp(N - 1.6, 3, inOut(seg(t, take + 0.05, take + 1.3)));
-        s.active = t < take ? N - 1 : 3;
-      }
-      s.resume = out(seg(t, back + 0.5, back + 1.0)) * (1 - inOut(seg(t, take, take + 0.25)));
-      s.resumeHover = t > 5.4 && t < take;
-      if (t >= take) s.flash = { index: 3, at: take + 1.1 };
-    }
-
     if (id === 'theme') {
       s.stars = [4, 8];
       s.chatPos = 1;
@@ -354,7 +324,6 @@
               <div class="s-tail"></div>
             </div>
             <div class="s-loader"><span class="s-spin"></span>Loading earlier messages…</div>
-            <div class="s-resume"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg><p><b>Continue where you left off</b><span>4. ${esc(CHAT[3].q)}</span></p><i>×</i></div>
             <div class="s-input">Reply</div>
           </div>
         </section>
@@ -396,9 +365,7 @@
   const filterBox = $('.s-filter');
   const starBtn = $('.s-starbtn');
   const loader = $('.s-loader');
-  const resumeEl = $('.s-resume');
   const sideItems = [...stage.querySelectorAll('.s-side-i')];
-  const title = $('.s-title');
   const count = $('.s-ph span');
   const keys = $('.s-keys');
   const cursor = $('.s-cursor');
@@ -428,10 +395,8 @@
     if (name === 'chat') return { x: 600, y: 380 };
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
-    if (name === 'resume') return pointOf(resumeEl, 0.3, 0.55);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
     const [kind, i] = name.split(':');
-    if (kind === 'side') return pointOf(sideItems[+i], 0.4, 0.55);
     const row = rows[+i];
     if (kind === 'item') return pointOf(row.querySelector('.s-label'), 0.3, 0.6);
     if (kind === 'star') return pointOf(row.querySelector('.s-star'), 0.5, 0.55);
@@ -477,17 +442,9 @@
       el.firstChild.style.transform = `translateX(${lerp(-100, 100, inOut(sweep))}%)`;
     });
     loader.style.opacity = s.loading;
-    // Slides down from above the view (no fade, like the extension's).
-    resumeEl.style.transform = `translate(-50%, ${lerp(-80, 0, s.resume)}px)`;
-    resumeEl.classList.toggle('hover', !!s.resumeHover);
-
-    // Another chat open: the sidebar marks it, and this chat isn't drawn.
-    sideItems.forEach((el, k) => el.classList.toggle('on', k === s.side));
-    const name = s.away ? 'Trip to Lisbon' : 'Habit tracker app';
-    if (title.textContent !== name) title.textContent = name;
-    count.textContent = s.away ? '' : N;
-    feed.style.visibility = s.away ? 'hidden' : '';
-    list.style.visibility = s.away ? 'hidden' : '';
+    // The sidebar marks this chat.
+    sideItems.forEach((el, k) => el.classList.toggle('on', k === 0));
+    count.textContent = N;
     loader.style.transform = `translate(-50%, ${lerp(-10, 0, s.loading)}px)`;
 
     // Panel.
