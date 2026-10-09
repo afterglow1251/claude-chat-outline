@@ -20,9 +20,9 @@
 // ---------------------------------------------------------------------------
 import * as S from '../core/selectors';
 import type { ApiQuestion, Entry, RenderedItem } from '../core/types';
-import { warnOnce } from '../core/util';
 import { ATTACHMENT_LABEL, keyOf, plainText, q, truncate } from './extract';
 import { feedHeight } from './scroll';
+import { seekLog } from './seek';
 
 // Offsets drift a little as the virtualizer re-measures turns.
 const OFFSET_SLACK = 4;
@@ -172,13 +172,12 @@ export function createLedger(): Ledger {
     for (const s of seen) s.pos = s.pos != null && posShift != null ? s.pos + posShift : null;
     if (absorbContiguous(seen, feed)) return;
     // Rendered text that doesn't match the API's: attach what matches,
-    // add nothing (the API list is the complete one).
+    // add nothing (the API list is the complete one). Expected for a moment
+    // (a message just sent or edited, a cached list not checked yet), so
+    // only in the debug log, and without your questions' text.
     if (!mismatch) {
       mismatch = true;
-      warnOnce(
-        'rendered questions differ from the API list',
-        seen.map((s) => s.label)
-      );
+      seekLog('rendered questions differ from the API list', { rendered: seen.length, listed: entries.length });
     }
     absorbGrowing(seen, false);
   }
