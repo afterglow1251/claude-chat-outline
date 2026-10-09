@@ -252,8 +252,8 @@ export function createPanel({
   // The view switcher, as in Sonar: at rest one icon, the current view's.
   // Point at it (or click it) and the views spring out to its left, one
   // after another; the current one is in the accent colour.
-  const viewBtns = VIEWS.map((v, i) => {
-    const btn = h(
+  const viewBtns = VIEWS.map((v) =>
+    h(
       'button',
       {
         type: 'button',
@@ -264,11 +264,8 @@ export function createPanel({
         title: v.title,
       },
       [icon(v.icon)]
-    );
-    // How far from the icon at rest: the nearer ones come out first.
-    btn.style.setProperty('--i', String(VIEWS.length - 1 - i));
-    return btn;
-  });
+    )
+  );
   const views = h('div', { className: 'views', role: 'group', 'aria-label': 'View' }, viewBtns);
   const pushBtn = h(
     'button',
@@ -450,6 +447,21 @@ export function createPanel({
   cleanups.push(() => clearTimeout(stripTimer));
   function setStrip(open: boolean) {
     clearTimeout(stripTimer);
+    if (open === views.classList.contains('open')) return;
+    if (open) {
+      // The icon at rest stays where it is, rightmost; the other views come
+      // out to its left, in their usual order, the nearest first. The order
+      // holds while it is open, whatever is picked meanwhile.
+      const rest = viewBtns.find((b) => b.dataset.view === state.view)!;
+      const others = viewBtns.filter((b) => b !== rest);
+      others.forEach((b, k) => {
+        b.style.setProperty('order', String(k));
+        b.style.setProperty('--i', String(others.length - 1 - k));
+        b.classList.remove('rest');
+      });
+      rest.style.setProperty('order', String(others.length));
+      rest.classList.add('rest');
+    }
     views.classList.toggle('open', open);
   }
   // Opens the moment the pointer lands on it; closes once it has left the

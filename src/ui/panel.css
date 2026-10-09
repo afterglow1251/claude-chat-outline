@@ -183,21 +183,18 @@ svg {
 
 /* ----- view switcher (see panel.ts) -------------------------------------- */
 
-/* At rest only the current view's icon shows. Open, all of them do, each
-   springing out from the icon's side a beat after the one nearer to it;
-   the current one is in the accent colour. */
+/* At rest only the current view's icon shows. Open, it stays where it is
+   and the other views spring out to its left, the nearest first; the
+   current one is in the accent colour. Nothing else moves. */
 .views {
   display: flex;
   align-items: center;
   gap: 2px;
   border-radius: 8px;
-  transition:
-    background-color 0.2s,
-    padding 0.2s;
+  transition: background-color 0.2s;
 }
 
 .views.open {
-  padding: 0 2px;
   background: var(--co-hover);
 }
 
@@ -215,7 +212,7 @@ svg {
   display: inline-grid;
 }
 
-.views.open .view-opt {
+.views.open .view-opt:not(.rest) {
   animation: co-unroll 340ms cubic-bezier(0.34, 1.4, 0.64, 1) calc(var(--i) * 30ms) both;
 }
 
@@ -763,10 +760,14 @@ li:has(:focus-visible) .star,
   color: var(--co-accent);
 }
 
+/* Long lines scroll sideways; a swipe that reaches the edge stays here,
+   rather than going back a page in the browser. */
 .code-preview {
   margin: 0;
   padding: 8px 10px;
-  overflow: hidden;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   font:
     11.5px/1.5 ui-monospace,
     SFMono-Regular,
@@ -987,7 +988,7 @@ li:has(:focus-visible) .star,
   }
 
   .place-ribbon,
-  .views.open .view-opt {
+  .views.open .view-opt:not(.rest) {
     animation: none;
   }
 }
