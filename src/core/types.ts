@@ -19,6 +19,18 @@ export interface ApiQuestion {
   pos: number;
 }
 
+export type DiagramKind = 'svg' | 'mermaid' | 'html' | 'react';
+
+/** A diagram Claude made in its answer, from claude.ai's API. */
+export interface Diagram {
+  kind: DiagramKind;
+  title: string;
+  /** SVG markup, Mermaid text, HTML or JSX, as Claude wrote it. */
+  source: string;
+  /** Index of the question whose answer has it. */
+  question: number;
+}
+
 /** A question rendered in the page right now. */
 export interface RenderedItem {
   target: HTMLElement;

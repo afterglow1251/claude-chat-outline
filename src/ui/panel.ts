@@ -8,8 +8,9 @@ import { createHighlighter } from './highlight';
 import { createResumePill } from './resume';
 import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
+import { createDiagramList } from './diagram-list';
 import * as S from '../core/selectors';
-import type { LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
+import type { Diagram, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
 export { HOST_ID };
 const SITE_URL = 'https://afterglow1251.github.io/claude-chat-outline/';
@@ -51,7 +52,11 @@ const ICONS = {
   expand: 'M15 6l-6 6 6 6',
   loadAll: 'M12 20V8M7 13l5-5 5 5M5 4h14',
   push: 'M4 5h16v14H4zM14 5v14',
+  diagrams: 'M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z',
 } as const;
+
+type ViewName = 'questions' | 'diagrams';
+const VIEW_TITLE: Record<ViewName, string> = { questions: 'Questions', diagrams: 'Diagrams' };
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -144,6 +149,8 @@ export interface PanelCallbacks {
   onResume(index: number | null): void;
   onLoadAll(): void;
   onCancelLoad(): void;
+  /** This chat's diagrams, read when the Diagrams view is opened. */
+  loadDiagrams(convId: string): Promise<Diagram[] | null>;
 }
 
 export interface Panel extends View {
@@ -167,7 +174,14 @@ function editingText(e: KeyboardEvent): boolean {
   return false;
 }
 
-export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoad }: PanelCallbacks): Panel {
+export function createPanel({
+  onSelect,
+  onStep,
+  onResume,
+  onLoadAll,
+  onCancelLoad,
+  loadDiagrams,
+}: PanelCallbacks): Panel {
   const state = {
     ...DEFAULTS,
     ready: false, // styles + settings loaded
@@ -178,6 +192,9 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     loading: null as { clicks: number; scan?: number } | null, // while "Load all" runs
     notice: '', // result of the last "Load all"
     returnFocus: null as Element | null,
+    view: 'questions' as ViewName,
+    questionCount: { text: '', label: '0 questions' },
+    diagramCount: null as number | null,
   };
   const cleanups: (() => void)[] = [];
   const listen = <E extends Event>(
@@ -209,6 +226,17 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     },
     [icon(ICONS.loadAll)]
   );
+  const diagramsBtn = h(
+    'button',
+    {
+      type: 'button',
+      className: 'icon-btn',
+      'aria-label': 'Show diagrams',
+      'aria-pressed': 'false',
+      title: 'Diagrams Claude made in this chat',
+    },
+    [icon(ICONS.diagrams)]
+  );
   const pushBtn = h(
     'button',
     {
@@ -238,6 +266,26 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     cancelBtn,
   ]);
   const questions = createQuestionList({ onSelect });
+  const diagrams = createDiagramList({
+    load: loadDiagrams,
+    onSelect,
+    onCount(n) {
+      state.diagramCount = n;
+      renderCount();
+    },
+  });
+  diagrams.element.hidden = true;
+  const titleLink = h(
+    'a',
+    {
+      className: 'title-link',
+      href: SITE_URL,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      title: 'How it works: shortcuts and a demo',
+    },
+    [VIEW_TITLE.questions]
+  );
   const resizer = h('div', {
     className: 'resizer',
     role: 'separator',
@@ -253,26 +301,18 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       h('div', { className: 'header' }, [
         h('h2', { className: 'title' }, [
           // The title opens the website: shortcuts and a demo.
-          h(
-            'a',
-            {
-              className: 'title-link',
-              href: SITE_URL,
-              target: '_blank',
-              rel: 'noopener noreferrer',
-              title: 'How it works: shortcuts and a demo',
-            },
-            ['Questions']
-          ),
+          titleLink,
           ' ',
           count,
         ]),
         loadBtn,
+        diagramsBtn,
         pushBtn,
         collapseBtn,
       ]),
       status,
       questions.element,
+      diagrams.element,
     ]),
   ]);
   const tabCount = h('span', { className: 'tab-count' });
@@ -327,7 +367,7 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     storageSet({ collapsed });
     apply();
     // While collapsed the list couldn't follow the chat: catch up.
-    if (!collapsed) questions.revealActive();
+    if (!collapsed && state.view === 'questions') questions.revealActive();
     if (!focusAfter) return;
     if (collapsed) {
       const back = state.returnFocus;
@@ -335,7 +375,8 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       if (back instanceof HTMLElement && back !== host && back.isConnected) back.focus();
       else tab.focus();
     } else {
-      if (!questions.focus()) collapseBtn.focus();
+      const list = state.view === 'questions' ? questions : diagrams;
+      if (!list.focus()) collapseBtn.focus();
     }
   }
 
@@ -345,7 +386,34 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     if (persist) storageSet({ width: state.width });
   }
 
+  // Questions or diagrams in the panel's body. The diagrams are read again
+  // each time their view is opened (see diagram-list.ts).
+  function setView(view: ViewName) {
+    state.view = view;
+    const showDiagrams = view === 'diagrams';
+    questions.element.hidden = showDiagrams;
+    diagrams.element.hidden = !showDiagrams;
+    diagramsBtn.setAttribute('aria-pressed', String(showDiagrams));
+    diagramsBtn.setAttribute('aria-label', showDiagrams ? 'Show questions' : 'Show diagrams');
+    titleLink.textContent = VIEW_TITLE[view];
+    if (showDiagrams) diagrams.show();
+    else questions.revealActive();
+    renderCount();
+    renderStatus();
+  }
+
   // ----- rendering --------------------------------------------------------
+
+  function renderCount() {
+    if (state.view === 'questions') {
+      count.textContent = state.questionCount.text;
+      count.setAttribute('aria-label', state.questionCount.label);
+    } else {
+      const n = state.diagramCount;
+      count.textContent = n === null ? '' : String(n);
+      count.setAttribute('aria-label', n === null ? '' : `${n} diagram${n === 1 ? '' : 's'}`);
+    }
+  }
 
   function renderStatus() {
     let text = '';
@@ -355,13 +423,15 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     else if (state.status !== 'ok' && state.status !== 'no-feed') text = STATUS_TEXT[state.status];
     else if (state.notice) text = state.notice;
     else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
+    // All about the questions: the diagrams come from the API, complete.
+    if (state.view === 'diagrams') text = '';
     status.hidden = !text;
     status.dataset.kind = !state.loading && state.status === 'selectors-broken' ? 'error' : '';
     status.classList.toggle('loading', !!state.loading);
     if (statusText.textContent !== text) statusText.textContent = text;
     cancelBtn.hidden = !state.loading;
     // Nothing to load once the list is complete (always so with the API).
-    loadBtn.hidden = !state.loading && !state.incomplete;
+    loadBtn.hidden = state.view === 'diagrams' || (!state.loading && !state.incomplete);
     loadBtn.disabled = !!state.loading;
   }
 
@@ -374,8 +444,12 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     questions.render(result.items, result.settled);
     const n = result.items.length;
     const more = state.incomplete ? '+' : '';
-    count.textContent = tabCount.textContent = pending ? '' : `${n}${more}`;
-    count.setAttribute('aria-label', more ? `${n} questions listed, more not loaded yet` : `${n} questions`);
+    tabCount.textContent = pending ? '' : `${n}${more}`;
+    state.questionCount = {
+      text: tabCount.textContent,
+      label: more ? `${n} questions listed, more not loaded yet` : `${n} questions`,
+    };
+    renderCount();
     renderStatus();
   }
 
@@ -405,6 +479,7 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     onLoadAll();
   });
   listen(cancelBtn, 'click', () => onCancelLoad());
+  listen(diagramsBtn, 'click', () => setView(state.view === 'diagrams' ? 'questions' : 'diagrams'));
   listen(pushBtn, 'click', () => {
     state.layout = state.layout === 'push' ? 'overlay' : 'push';
     storageSet({ layout: state.layout });
@@ -531,7 +606,11 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     unreachable: (index) => questions.expand(index),
     seeking: (on, clip = null) => (on ? seekingPill.show(clip) : seekingPill.hide()),
     offerResume: (offer, clip = null) => (offer ? resumePill.show(offer, clip) : resumePill.hide()),
-    setConversation: (convId) => questions.setConversation(convId),
+    setConversation(convId) {
+      questions.setConversation(convId);
+      diagrams.setConversation(convId);
+      if (state.view === 'diagrams') diagrams.show();
+    },
     setVisible(visible) {
       state.visible = visible;
       apply();
@@ -545,7 +624,9 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       state.notice = '';
       state.status = 'no-feed';
       state.canLoadEarlier = state.incomplete = false;
-      count.textContent = tabCount.textContent = '';
+      state.questionCount = { text: '', label: '0 questions' };
+      tabCount.textContent = '';
+      renderCount();
       renderStatus();
     },
     destroy() {

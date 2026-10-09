@@ -4,8 +4,8 @@
 //  - a per-conversation cache in chrome.storage.local, so a chat you have
 //    seen before is listed in full the moment you open it again.
 // Nothing here talks to any server other than claude.ai itself.
-import { parseConversation } from './conversation';
-import type { ApiQuestion } from '../core/types';
+import { parseConversation, parseDiagrams } from './conversation';
+import type { ApiQuestion, Diagram } from '../core/types';
 import { warnOnce } from '../core/util';
 
 const CACHE_PREFIX = 'outline-cache:';
@@ -200,8 +200,7 @@ async function organizations(): Promise<string[]> {
   return ids;
 }
 
-/** Each question in order, or null if the API is unavailable. */
-export async function fetchQuestions(convId: string): Promise<ApiQuestion[] | null> {
+async function fetchConversation<T>(convId: string, parse: (data: unknown) => T | null): Promise<T | null> {
   let lastErr: unknown = null;
   for (const org of await organizations()) {
     try {
@@ -209,12 +208,32 @@ export async function fetchQuestions(convId: string): Promise<ApiQuestion[] | nu
         `/api/organizations/${encodeURIComponent(org)}/chat_conversations/${encodeURIComponent(convId)}` +
           '?tree=True&rendering_mode=messages&render_all_tools=true'
       );
-      const questions = parseConversation(data);
-      if (questions) return questions;
+      const parsed = parse(data);
+      if (parsed) return parsed;
     } catch (err) {
       lastErr = err;
     }
   }
-  if (lastErr) warnOnce('conversation API unavailable, using the page only', lastErr);
+  if (lastErr) throw lastErr;
   return null;
+}
+
+/** Each question in order, or null if the API is unavailable. */
+export async function fetchQuestions(convId: string): Promise<ApiQuestion[] | null> {
+  try {
+    return await fetchConversation(convId, parseConversation);
+  } catch (err) {
+    warnOnce('conversation API unavailable, using the page only', err);
+    return null;
+  }
+}
+
+/** Claude's diagrams in order, or null if the API is unavailable. */
+export async function fetchDiagrams(convId: string): Promise<Diagram[] | null> {
+  try {
+    return await fetchConversation(convId, parseDiagrams);
+  } catch (err) {
+    warnOnce('conversation API unavailable, no diagrams', err);
+    return null;
+  }
 }

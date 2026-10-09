@@ -226,7 +226,8 @@ svg {
 
 /* ----- filter ----------------------------------------------------------- */
 
-.questions {
+.questions,
+.diagrams {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -441,6 +442,83 @@ li:has(:focus-visible) .star,
   margin: 0;
   padding: 16px 10px;
   text-align: center;
+  color: var(--co-muted);
+}
+
+/* ----- diagrams (see diagram-list.ts) ---------------------------------- */
+
+.diagram-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.diagram {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.diagram:hover {
+  background: var(--co-hover);
+}
+
+/* An SVG: its thumbnail on top, the name under it. */
+.diagram.has-thumb {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* Always light: Claude draws for a light page, often in plain black. */
+.thumb-box {
+  display: block;
+  height: 120px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.diagram-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--co-muted);
+  background: var(--co-input-bg);
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.diagram-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.has-thumb .diagram-text {
+  padding: 0 4px;
+}
+
+.diagram-title {
+  overflow-wrap: anywhere;
+}
+
+.diagram-meta {
+  font-size: 11px;
   color: var(--co-muted);
 }
 
