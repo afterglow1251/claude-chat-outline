@@ -150,6 +150,15 @@ button:focus-visible {
   color: var(--co-fg);
 }
 
+a.icon-btn {
+  text-decoration: none;
+}
+
+a.icon-btn:focus-visible {
+  outline: 2px solid var(--co-focus);
+  outline-offset: -2px;
+}
+
 .icon-btn:disabled {
   opacity: 0.35;
   cursor: default;
