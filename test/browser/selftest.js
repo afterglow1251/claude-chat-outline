@@ -212,30 +212,32 @@
       const expectNow = all();
       check(window.apiCalls === callsNow && labels().join('|') === expectNow.join('|'), 'URL change within the same chat keeps the session', `apiCalls ${callsNow} -> ${window.apiCalls}; ${labels().join(' | ')}`);
 
-      // ---- Cmd+Shift+W/S: previous / next question ----------------------------
+      // ---- Cmd+Shift+↑/↓: previous / next question ----------------------------
       const articleOf = (i) => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(chat.questions[i].replace(/\s+/g, ' ').slice(0, 25)));
       const atLine = (i) => { const a = articleOf(i); return a && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; };
-      const step = (target, dir) => key(target, { key: dir === 'up' ? 'W' : 'S', code: dir === 'up' ? 'KeyW' : 'KeyS', metaKey: true, shiftKey: true });
+      const step = (target, dir) => key(target, { key: dir, code: dir, metaKey: true, shiftKey: true });
       const last = labels().length - 1;
       scroller().scrollTop = scroller().scrollHeight;
       check(await waitFor(() => current() === last, 2000), 'at the bottom the last question is active', `current=${current()}`);
-      step(document.body, 'up');
+      step(document.body, 'ArrowUp');
       // Inside the last answer, up goes back to the last question's start first.
-      check(await waitFor(() => (current() === last && atLine(last)) || (current() === last - 1 && atLine(last - 1)), 8000), 'Cmd+Shift+W goes to the start of the question being read, or the one before', `current=${current()}`);
+      check(await waitFor(() => (current() === last && atLine(last)) || (current() === last - 1 && atLine(last - 1)), 8000), 'Cmd+Shift+↑ goes to the start of the question being read, or the one before', `current=${current()}`);
       const stepFrom = current();
       await sleep(300);
-      step(document.body, 'up');
-      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1) && flashing(articleOf(stepFrom - 1)), 8000), 'Cmd+Shift+W again: the previous question, flashed', `current=${current()}`);
+      step(document.body, 'ArrowUp');
+      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1) && flashing(articleOf(stepFrom - 1)), 8000), 'Cmd+Shift+↑ again: the previous question, flashed', `current=${current()}`);
       await sleep(300);
-      step(document.body, 'up');
-      check(await waitFor(() => current() === stepFrom - 2 && atLine(stepFrom - 2), 8000), 'Cmd+Shift+W once more: the one before that', `current=${current()}`);
+      step(document.body, 'ArrowUp');
+      check(await waitFor(() => current() === stepFrom - 2 && atLine(stepFrom - 2), 8000), 'Cmd+Shift+↑ once more: the one before that', `current=${current()}`);
       await sleep(300);
-      step(document.body, 'down');
-      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1), 8000), 'Cmd+Shift+S: the next question', `current=${current()}`);
+      step(document.body, 'ArrowDown');
+      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1), 8000), 'Cmd+Shift+↓: the next question', `current=${current()}`);
       const field = document.body.appendChild(document.createElement('textarea'));
       field.value = 'a draft';
       field.focus();
-      check(!step(field, 'up'), 'Cmd+Shift+W works while typing a message');
+      check(step(field, 'ArrowUp'), 'Cmd+Shift+↑ in a field with text is left to the field');
+      field.value = '';
+      check(!step(field, 'ArrowUp'), 'Cmd+Shift+↑ in an empty field steps (claude.ai keeps its message box focused)');
       field.remove();
       check(await waitFor(() => current() === stepFrom - 2 && atLine(stepFrom - 2), 8000), 'that step went up', `current=${current()}`);
       const place = stepFrom - 2;

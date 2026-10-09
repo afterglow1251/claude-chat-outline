@@ -18,7 +18,7 @@ Works in Chrome, Edge, Brave, Arc and other Chromium browsers (114+).
 
 - Click a question to jump to it. The one you're reading is highlighted.
 - Search the list and star questions to keep important ones at hand.
-- <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> / <kbd>S</kbd> jumps to the previous or next question, with the panel open or closed.
+- <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> jumps to the previous or next question, with the panel open or closed.
 - Open a chat you were reading further up, and it offers to take you back there.
 - <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> shows or hides the panel.
 
