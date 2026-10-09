@@ -8,6 +8,7 @@
   --co-border: rgba(31, 30, 29, 0.12);
   --co-hover: rgba(31, 30, 29, 0.05);
   --co-active-bg: rgba(217, 119, 87, 0.1);
+  --co-active-hover-bg: rgba(217, 119, 87, 0.16);
   --co-accent: #d97757;
   --co-accent-hover: #c4633f;
   --co-focus: #2c84db;
@@ -24,6 +25,7 @@
   --co-border: rgba(255, 255, 255, 0.1);
   --co-hover: rgba(255, 255, 255, 0.05);
   --co-active-bg: rgba(217, 119, 87, 0.16);
+  --co-active-hover-bg: rgba(217, 119, 87, 0.24);
   --co-accent-hover: #e6896b;
   --co-focus: #66a7ee;
   --co-input-bg: #1f1e1d;
@@ -473,6 +475,11 @@ li:hover .item {
   background: var(--co-active-bg);
 }
 
+/* Pointed at, it goes a shade deeper, as the "starred only" button does. */
+.list li:has(.item[aria-current='true']):hover {
+  background: var(--co-active-hover-bg);
+}
+
 .item[aria-current='true'] {
   color: var(--co-fg);
 }
@@ -543,6 +550,11 @@ li:has(:focus-visible) .star,
 .diagram-row[aria-current='true'],
 .code-row[aria-current='true'] {
   background: var(--co-active-bg);
+}
+
+.diagram-row[aria-current='true']:hover,
+.code-row[aria-current='true']:hover {
+  background: var(--co-active-hover-bg);
 }
 
 .diagram-line {
