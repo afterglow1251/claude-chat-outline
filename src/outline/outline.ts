@@ -41,6 +41,11 @@ const REBUILD_MAX_WAIT_MS = 1000;
 const CACHE_WAIT_MS = 500;
 const SAVE_DELAY_MS = 1000;
 const API_MIN_INTERVAL_MS = 4000;
+// Complete lists this tab has already received, by conversation (most
+// recent last): going back to a chat shows its list at once instead of
+// waiting for claude.ai to send the whole conversation again.
+const KNOWN_MAX_CHATS = 20;
+const known = new Map<string, readonly ApiQuestion[]>();
 // Stepping up from a question scrolled further than this above the line
 // goes back to that question's own start first.
 const STEP_INSIDE_PX = 16;
@@ -54,7 +59,7 @@ const STEP_INSIDE_PX = 16;
 // Shared with debugReport().
 const debugState = {
   convId: null as string | null,
-  source: 'none' as 'none' | 'page' | 'cache' | 'api' | 'claude.ai response',
+  source: 'none' as 'none' | 'page' | 'cache' | 'memory' | 'api' | 'claude.ai response',
   api: 'not tried',
   questions: 0,
   rendered: 0,
@@ -103,6 +108,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
   let acquireFrame = 0;
   let complete = false; // the list is known to be complete
+  let fresh = false; // the list came from claude.ai during this session
   let apiState: 'idle' | 'loading' | 'ok' | 'failed' = 'idle';
   let apiLast = 0;
   let apiTimer: ReturnType<typeof setTimeout> | undefined;
@@ -146,7 +152,15 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     unwatchConversations = watchConversations((payload) => {
       if (payload.convId === convId && !stopped) applyQuestions(payload.questions, 'claude.ai response');
     });
-    // 1. What we remembered from an earlier visit: shown immediately.
+    // 1. The complete list from an earlier visit in this tab: final at
+    // once. Still asked for again below, in the background.
+    const remembered = convId ? known.get(convId) : undefined;
+    if (remembered) {
+      ledger.setAuthoritative(remembered);
+      complete = true;
+      debugState.source = 'memory';
+    }
+    // 2. What we remembered from an earlier visit: shown immediately.
     if (cache) {
       const record = await Promise.race([
         cache.load(),
@@ -160,7 +174,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
         debugState.source = 'cache';
       }
     }
-    // 2. What is rendered.
+    // 3. What is rendered.
     // Claude may replace the feed node (e.g. when switching chats). This
     // observer only does an O(1) isConnected check per batch while the
     // feed is healthy, and re-queries for it once it is gone.
@@ -180,9 +194,9 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     // A real scroll by the user ends any programmatic seek.
     unlistenUserScroll = seeker.listen();
     acquireFeed();
-    // 3. Our own request to claude.ai's API, unless claude.ai's response
+    // 4. Our own request to claude.ai's API, unless claude.ai's response
     // already gave us the list.
-    if (!ledger.isAuthoritative()) refreshFromApi();
+    if (!fresh) refreshFromApi();
   }
 
   function acquireFeed() {
@@ -347,7 +361,12 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     if (!texts.length && items.length) return false;
     debugState.source = source;
     ledger.setAuthoritative(texts);
-    complete = true;
+    complete = fresh = true;
+    if (convId) {
+      known.delete(convId);
+      known.set(convId, texts);
+      if (known.size > KNOWN_MAX_CHATS) known.delete(known.keys().next().value!);
+    }
     rebuild();
     saveNow();
     return true;
