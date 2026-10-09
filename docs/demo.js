@@ -78,7 +78,6 @@
     { title: 'Star the ones that matter', dur: 6 },
     { title: "Reach what isn't loaded yet", dur: 7.6 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
-    { title: `${mod} ↑ ↓ for the first and last`, dur: 7.6 },
     { title: 'Picks up where you left off', dur: 6.4 },
     { title: 'Light and dark', dur: 4.2 },
   ];
@@ -126,7 +125,6 @@
       loading: 0,
       keys: 0,
       caps: [mod, '⇧', 'O'], // the keys shown
-      focusRow: -1, // the row with keyboard focus
       resume: 0, // the "Continue where you left off" pill, 0 hidden to 1 shown
       dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
@@ -255,30 +253,6 @@
     }
 
     if (ci === 8) {
-      // In the panel: Cmd+↓ to the last question, Enter jumps there; Cmd+↑
-      // back to the first, Enter again.
-      s.stars = [4, 8];
-      s.cursor = cursorPath(t, [[0, 'chat']]);
-      const presses = [
-        [0.9, [mod, '↓']],
-        [1.9, ['↵']],
-        [3.8, [mod, '↑']],
-        [4.8, ['↵']],
-      ];
-      const shown = presses.find(([at]) => t >= at - 0.4 && t < at + 0.5);
-      s.keys = shown ? 1 : 0;
-      if (shown) s.caps = shown[1];
-      s.keysDown = presses.some(([at]) => t >= at - 0.1 && t < at + 0.2);
-      s.focusRow = t >= 3.85 ? 0 : t >= 0.95 ? N - 1 : 0;
-      const toLast = inOut(seg(t, 1.95, 3.0));
-      const toFirst = inOut(seg(t, 4.85, 5.9));
-      s.active = t >= 4.85 ? 0 : t >= 1.95 ? N - 1 : 0;
-      s.chatPos = lerp(lerp(0, N - 1, toLast), 0, toFirst);
-      if (t >= 4.85) s.flash = { index: 0, at: 5.7 };
-      else if (t >= 1.95) s.flash = { index: N - 1, at: 2.8 };
-    }
-
-    if (ci === 9) {
       // Back to this chat later: claude.ai opens it at the end, and the
       // extension offers the question you were reading.
       s.stars = [4, 8];
@@ -292,7 +266,7 @@
       if (t >= take) s.flash = { index: 3, at: take + 1.1 };
     }
 
-    if (ci === 10) {
+    if (ci === 9) {
       s.stars = [4, 8];
       s.chatPos = 3;
       s.active = 3;
@@ -500,7 +474,6 @@
       if (visible) shown++;
       row.classList.toggle('active', k === s.active);
       row.classList.toggle('hover', k === s.hover);
-      row.classList.toggle('focus', k === s.focusRow);
       row.classList.toggle('starred', starred);
       const enter = clamp(s.listIn * (N + 4) - k, 0, 1);
       row.style.opacity = enter;
@@ -512,8 +485,8 @@
     filterBox.classList.toggle('focus', s.focusFilter);
     filterBox.classList.toggle('has-text', !!s.filter);
 
-    // Keep the active row (or the one with keyboard focus) in view, like the real panel.
-    const activeRow = rows[s.focusRow >= 0 ? s.focusRow : s.active];
+    // Keep the active row in view, like the real panel.
+    const activeRow = rows[s.active];
     if (activeRow && !activeRow.hidden) {
       const follow = clamp(activeRow.offsetTop - list.clientHeight * 0.4, 0, list.scrollHeight - list.clientHeight);
       const want = lerp(follow, 0, s.listUp);
