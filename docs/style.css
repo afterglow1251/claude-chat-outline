@@ -433,6 +433,22 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
   background: linear-gradient(100deg, transparent 15%, rgba(217, 119, 87, 0.08) 35%, rgba(217, 119, 87, 0.3) 50%, rgba(217, 119, 87, 0.08) 65%, transparent 85%);
 }
 .s-answer { font-family: var(--serif); font-size: 15.5px; line-height: 1.6; }
+
+/* A diagram Claude drew in its answer: teal and coral boxes, like claude.ai's visuals. */
+.s-diagram { position: relative; margin-top: 12px; padding: 6px 0; border-radius: 10px; }
+.s-diagram svg, .s-dprev svg { display: block; width: 100%; height: auto; }
+.dg-th, .dg-ts { font-family: var(--sans, system-ui); text-anchor: middle; dominant-baseline: central; }
+.dg-th { font-size: 14px; font-weight: 500; }
+.dg-ts { font-size: 12px; }
+.dg-arr { fill: none; stroke: var(--w-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.dg-on { fill: var(--w-muted); }
+.c-teal { --f: #e1f5ee; --s: #0f6e56; --t: #085041; }
+.c-coral { --f: #faece7; --s: #993c1d; --t: #712b13; }
+.s-window[data-theme="dark"] .c-teal { --f: #085041; --s: #5dcaa5; --t: #9fe1cb; }
+.s-window[data-theme="dark"] .c-coral { --f: #712b13; --s: #f0997b; --t: #f5c4b3; }
+.c-teal rect, .c-coral rect { fill: var(--f); stroke: var(--s); stroke-width: 0.75; }
+.c-teal .dg-th, .c-coral .dg-th { fill: var(--t); }
+.c-teal .dg-ts, .c-coral .dg-ts { fill: var(--s); }
 .s-answer pre {
   margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--w-code); border: 1px solid var(--w-line);
   font: 12.5px/1.55 var(--mono); white-space: pre; overflow: hidden;
@@ -503,6 +519,23 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .s-list li.starred .s-star svg { fill: currentColor; animation: pop 0.45s var(--spring); }
 @keyframes pop { 0% { transform: scale(0.6); } 100% { transform: scale(1); } }
 .s-empty { padding: 16px; color: var(--w-muted); font-size: 13px; }
+
+/* The Diagrams view: a preview over each diagram's name, as in the extension. */
+.s-dbtn { border-radius: 7px; }
+.s-dbtn svg { stroke-width: 1.8; stroke-linejoin: round; }
+.s-dbtn.on { background: var(--w-hover); color: var(--w-fg); }
+.s-dlist { display: none; list-style: none; flex: 1; overflow: hidden; padding: 8px; }
+.s-panel.dview .s-tools, .s-panel.dview .s-list, .s-panel.dview .s-empty { display: none; }
+.s-panel.dview .s-dlist { display: block; }
+.s-dlist li { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 8px; margin-bottom: 4px; }
+.s-dlist li.hover { background: var(--w-hover); }
+.s-dprev {
+  position: relative; margin-bottom: 6px; padding: 12px 10px; border-radius: 8px;
+  background: var(--w-bg); border: 1px solid var(--w-line);
+}
+.s-shimmer { position: absolute; inset: 8px; border-radius: 5px; background: var(--w-hover); }
+.s-dlist b { font-weight: 400; font-size: 13.5px; padding: 0 4px; }
+.s-dlist span { font-size: 11.5px; color: var(--w-muted); padding: 0 4px; }
 
 .s-tab {
   position: absolute; right: 0; top: 104px; z-index: 3; width: 30px; padding: 10px 0;
