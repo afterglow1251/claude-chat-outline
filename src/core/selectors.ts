@@ -72,6 +72,12 @@ export const userMessageBody = '[data-testid="user-message"], .font-user-message
 export const userHeadingPrefix = USER_HEADING_PREFIX;
 export { userHeadingIn };
 
+// Parts of an answer that are not the answer itself: the thinking / status
+// row above it (collapsed, it can still hold its text, which often quotes
+// the same code) and anything folded or hidden away. A jump never lands in
+// them.
+export const notAnswer = '[data-cds="TurnStatus"], details:not([open]), [aria-hidden="true"], [hidden], [inert]';
+
 // The lazy-load button at the top of long chats. Matched on text or
 // aria-label because it has no stable test id that we know of.
 export const loadEarlierButton = {

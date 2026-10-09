@@ -11,6 +11,7 @@ import * as S from '../core/selectors';
 import type { DiagramFinder, DiagramTarget } from '../core/types';
 import { safe } from '../core/util';
 import { findFeed, q, runStrategy } from './extract';
+import { seekLog } from './seek';
 
 const CLICKABLE = 'button, a, [role="button"]';
 
@@ -33,7 +34,53 @@ const frameTitle = (frame: Element) =>
 
 const squash = (text: string) => text.replace(/\s+/g, ' ').trim();
 
+// Shown as part of the answer: not inside its thinking or anything folded
+// away, drawn with a size, not transparent, and not clipped away by an
+// ancestor (a collapsed block is often a container of height 0 with
+// overflow hidden: what is inside keeps its own size). A jump to a hidden
+// copy would land the highlight on nothing visible, then jump once claude.ai
+// re-rendered and the real one was found.
+const CLIPS = /hidden|clip/;
+function shownInAnswer(el: HTMLElement, feed: HTMLElement): boolean {
+  if (el.closest(S.notAnswer)) return false;
+  const r = el.getBoundingClientRect();
+  if (r.height < 1 || r.width < 1) return false;
+  for (let a: HTMLElement | null = el; a && a !== feed; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+    // Scrollable ancestors (the chat itself) are not clipping: what is out
+    // of their view can be scrolled to. Hidden ones are.
+    if (a !== el && (CLIPS.test(cs.overflowY) || CLIPS.test(cs.overflowX))) {
+      const b = a.getBoundingClientRect();
+      if (b.height < 1 || r.bottom <= b.top + 0.5 || r.top >= b.bottom - 0.5) return false;
+    }
+  }
+  return true;
+}
+
+// A code block's card: claude.ai draws the code (<pre>) inside a card with
+// a header (the language, a copy button). The jump lands on and highlights
+// the card, not the code alone, which left a frame inside a frame. The
+// card is the highest ancestor not much taller than the code (a header's
+// worth), so a wrapper around the whole answer is never taken.
+const CARD_EXTRA_PX = 80;
+function codeCard(pre: HTMLElement, feed: HTMLElement): HTMLElement {
+  const h = pre.getBoundingClientRect().height;
+  let card = pre;
+  for (let a = pre.parentElement; a && a !== feed && !a.matches(S.turn); a = a.parentElement) {
+    const ah = a.getBoundingClientRect().height;
+    if (ah > h + CARD_EXTRA_PX) break;
+    card = a;
+  }
+  return card;
+}
+
 function candidates(feed: HTMLElement, target: DiagramTarget): HTMLElement[] {
+  const shown = matching(feed, target).filter((el) => shownInAnswer(el, feed));
+  return target.kind === 'code' ? shown.map((pre) => codeCard(pre, feed)) : shown;
+}
+
+function matching(feed: HTMLElement, target: DiagramTarget): HTMLElement[] {
   if (target.kind === 'code') {
     const line = squash(target.title);
     return q.all(feed, 'pre').filter((pre) => squash(pre.textContent || '').includes(line));
@@ -67,7 +114,17 @@ export function diagramFinder(target: DiagramTarget): DiagramFinder {
         const inAnswer = candidates(feed, target).filter(
           (el) => follows(el, start) && !start.contains(el) && (!end || follows(end, el))
         );
-        return inAnswer[Math.min(target.nth, inAnswer.length - 1)] || null;
+        const el = inAnswer[Math.min(target.nth, inAnswer.length - 1)] || null;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          seekLog('diagram found', {
+            of: inAnswer.length,
+            tag: el.tagName,
+            top: Math.round(r.top),
+            h: Math.round(r.height),
+          });
+        }
+        return el;
       },
       null
     );

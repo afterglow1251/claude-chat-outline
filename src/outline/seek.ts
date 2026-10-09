@@ -193,6 +193,9 @@ export function createSeeker(ctx: SeekContext): Seeker {
     const theFeed = ctx.feed();
     if (!theFeed || !theFeed.isConnected) return ctx.scheduleRebuild();
     cancelSeek();
+    // The last jump's highlight goes now: left on, it would ride along with
+    // its message while the chat scrolls to the new one.
+    view.clearHighlight();
     const container = findScrollContainer(theFeed);
     ctx.tracker()?.pin(index);
     const controller = new AbortController();
@@ -207,19 +210,36 @@ export function createSeeker(ctx: SeekContext): Seeker {
     // Going up to a question not on the page: claude.ai has to load earlier
     // messages first, which can take a while in a long chat.
     if (seekingUp) view.seeking(true, isDocScroller(container) ? null : container);
-    const landing = await seek(entry, theFeed, container, controller.signal);
-    seekLog('landing', { found: !!landing, aborted: controller.signal.aborted });
-    if (landing) await settleOn(() => turnOf(entry), container, landing.scrolled, controller.signal);
-    // On from the question to the diagram in its answer, once it is there.
+    // A diagram or code block: the question may scroll out of the page on
+    // the way (a long answer), so the finder keeps what it found while that
+    // stays rendered. The element found is kept too: looking it up again on
+    // every frame of the highlight made a long chat stutter.
+    const find = diagram ? () => diagram(turnOf(entry)) : null;
     let shown: (() => HTMLElement | null) | null = null;
-    if (landing && diagram && seekController === controller) {
-      // The question may scroll out of the page on the way (a long answer):
-      // the finder keeps the diagram it found while that stays rendered.
-      const find = () => diagram(turnOf(entry));
-      if (await waitForDom(() => !!find(), DIAGRAM_WAIT_MS, controller.signal)) {
-        const scrolled = safe('scroll', () => scrollToElement(container, find()!), false);
-        await settleOn(find, container, scrolled, controller.signal);
-        shown = find;
+    const onto = async (found: HTMLElement) => {
+      const target = () => (found.isConnected ? found : find!());
+      const scrolled = safe('scroll', () => scrollToElement(container, found), false);
+      await settleOn(target, container, scrolled, controller.signal);
+      shown = target;
+    };
+    let landing: { el: HTMLElement; scrolled: boolean } | null = null;
+    // Already on the page: straight to it, one scroll, as to a question.
+    // Going through the question first stopped the chat there for a moment
+    // (that scroll's settling), then jumped on: a visible flicker.
+    const direct = find?.();
+    if (direct) {
+      seekLog('direct to diagram', null);
+      landing = { el: direct, scrolled: true };
+      await onto(direct);
+    } else {
+      landing = await seek(entry, theFeed, container, controller.signal);
+      seekLog('landing', { found: !!landing, aborted: controller.signal.aborted });
+      // The question itself is only a stop on the way to its diagram: no
+      // settling there, on to the diagram as soon as claude.ai renders it.
+      if (landing && !find) await settleOn(() => turnOf(entry), container, landing.scrolled, controller.signal);
+      if (landing && find && seekController === controller) {
+        if (await waitForDom(() => !!find(), DIAGRAM_WAIT_MS, controller.signal)) await onto(find()!);
+        else await settleOn(() => turnOf(entry), container, landing.scrolled, controller.signal);
       }
     }
     // A newer click owns the pin now; a user scroll has released it already.

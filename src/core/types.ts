@@ -120,6 +120,8 @@ export interface View {
    * chat's scroller), or the viewport if null.
    */
   highlight(target: () => Element | null, clip: Element | null): void;
+  /** Takes the highlight away now, if one is shown. */
+  clearHighlight(): void;
   /**
    * The question is in the list but claude.ai does not show it (the page
    * loads a chat's history only so far back): show its text in the panel.
