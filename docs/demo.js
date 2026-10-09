@@ -76,7 +76,7 @@
     { title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
     { title: 'Search your questions', dur: 7.2 },
     { title: 'Star the ones that matter', dur: 6 },
-    { title: "Reach what isn't loaded yet", dur: 7.6 },
+    { title: "Reach what isn't loaded yet", dur: 8.0 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
     { title: 'Picks up where you left off', dur: 9.2 },
     { title: 'Light and dark', dur: 4.2 },
@@ -224,15 +224,18 @@
       s.unloadedBelow = 6;
       s.chatPos = 10.2;
       s.active = 10;
-      // Question 1 is above what the list shows: scroll the list up to it first.
-      const click = 2.75;
+      // Star filter off: every question again, the list at the current one.
+      // Question 1 is above what it shows: scroll the list up to it, then click.
+      const filterOff = 0.4;
+      const click = 3.15;
       const loaded = click + 1.4;
-      s.cursor = cursorPath(t, [[0, 'starBtn'], [0.9, 'list'], [1.9, 'list'], [2.5, 'item:0']]);
-      s.wheel = t > 0.9 && t < 1.9;
+      s.starOnly = t < filterOff;
+      s.cursor = cursorPath(t, [[0, 'starBtn'], [1.2, 'list'], [2.3, 'list'], [2.9, 'item:0']]);
+      s.wheel = t > 1.2 && t < 2.3;
       s.wheelUp = true;
-      s.listUp = inOut(seg(t, 1.0, 1.8));
-      s.hover = t > 2.2 ? 0 : -1;
-      s.click = clickAt(t, [click]);
+      s.listUp = inOut(seg(t, 1.3, 2.2));
+      s.hover = t > 2.6 ? 0 : -1;
+      s.click = clickAt(t, [filterOff, click]);
       if (t >= click) {
         s.active = 0;
         s.loading = seg(t, click, click + 0.25) * (1 - seg(t, loaded, loaded + 0.3));
@@ -442,6 +445,7 @@
   // ----- render --------------------------------------------------------------
 
   let listScroll = 0;
+  let lastShown = ''; // which rows were shown: when it changes the list jumps, it doesn't glide
   let lastT = -1;
 
   function render(T, smooth) {
@@ -510,12 +514,16 @@
     filterBox.classList.toggle('focus', s.focusFilter);
     filterBox.classList.toggle('has-text', !!s.filter);
 
-    // Keep the active row in view, like the real panel.
+    // Keep the active row in view, like the real panel. A list that was
+    // just filtered differently is redrawn there at once.
+    const shownNow = rows.map((r) => (r.hidden ? 0 : 1)).join('');
+    const redrawn = shownNow !== lastShown;
+    lastShown = shownNow;
     const activeRow = rows[s.active];
     if (activeRow && !activeRow.hidden) {
       const follow = clamp(activeRow.offsetTop - list.clientHeight * 0.4, 0, list.scrollHeight - list.clientHeight);
       const want = lerp(follow, 0, s.listUp);
-      listScroll = smooth ? lerp(listScroll, want, 0.18) : want;
+      listScroll = smooth && !redrawn ? lerp(listScroll, want, 0.18) : want;
     } else if (!smooth) listScroll = 0;
     list.scrollTop = listScroll;
 
