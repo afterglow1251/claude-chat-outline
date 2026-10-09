@@ -51,7 +51,6 @@ const ICONS = {
   expand: 'M15 6l-6 6 6 6',
   loadAll: 'M12 20V8M7 13l5-5 5 5M5 4h14',
   push: 'M4 5h16v14H4zM14 5v14',
-  help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.4M12 17h.01',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -221,18 +220,6 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     },
     [icon(ICONS.push)]
   );
-  const helpLink = h(
-    'a',
-    {
-      className: 'icon-btn',
-      href: SITE_URL,
-      target: '_blank',
-      rel: 'noopener noreferrer',
-      'aria-label': 'How it works (opens the website)',
-      title: 'How it works: shortcuts and a demo',
-    },
-    [icon(ICONS.help)]
-  );
   const collapseBtn = h(
     'button',
     {
@@ -264,9 +251,23 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     resizer,
     h('nav', { 'aria-label': 'Chat outline' }, [
       h('div', { className: 'header' }, [
-        h('h2', { className: 'title' }, ['Questions ', count]),
+        h('h2', { className: 'title' }, [
+          // The title opens the website: shortcuts and a demo.
+          h(
+            'a',
+            {
+              className: 'title-link',
+              href: SITE_URL,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              title: 'How it works: shortcuts and a demo',
+            },
+            ['Questions']
+          ),
+          ' ',
+          count,
+        ]),
         loadBtn,
-        helpLink,
         pushBtn,
         collapseBtn,
       ]),

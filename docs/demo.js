@@ -359,7 +359,6 @@
 
       <div class="s-panel">
         <div class="s-ph"><b>Questions</b><span>${N}</span>
-          <i class="s-ic"><svg viewBox="0 0 24 24" style="stroke-width:1.9"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.4M12 17h.01"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></i>
         </div>
