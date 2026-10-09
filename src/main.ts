@@ -14,6 +14,8 @@ let sessionKey: string | null = null; // which conversation the session belongs 
 function boot() {
   panel = createPanel({
     onSelect: (index) => session?.scrollTo(index),
+    onStep: (delta) => session?.step(delta),
+    onResume: (index) => session?.resume(index),
     onLoadAll: () => session?.loadAll(),
     onCancelLoad: () => session?.cancelLoad(),
   });

@@ -5,6 +5,7 @@
 import { h, icon } from '../core/dom';
 import { HOST_ID } from '../core/events';
 import { createHighlighter } from './highlight';
+import { createResumePill } from './resume';
 import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import * as S from '../core/selectors';
@@ -136,6 +137,10 @@ function detectTheme(): Theme {
 
 export interface PanelCallbacks {
   onSelect(index: number): void;
+  /** Alt+↑ / Alt+↓: the previous (-1) or next (1) question. */
+  onStep(delta: 1 | -1): void;
+  /** The offer to continue where you left off was taken (an index) or dismissed (null). */
+  onResume(index: number | null): void;
   onLoadAll(): void;
   onCancelLoad(): void;
 }
@@ -151,7 +156,17 @@ export interface Panel extends View {
   destroy(): void;
 }
 
-export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallbacks): Panel {
+// Alt+↑/↓ in a field you are typing in moves the caret there (macOS), so
+// it is left alone unless the field is empty: claude.ai keeps its message
+// box focused, and an empty one has nowhere for the caret to go.
+function editingText(e: KeyboardEvent): boolean {
+  const t = e.composedPath()[0];
+  if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return t.value !== '';
+  if (t instanceof HTMLElement && t.isContentEditable) return (t.textContent || '').trim() !== '';
+  return false;
+}
+
+export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoad }: PanelCallbacks): Panel {
   const state = {
     ...DEFAULTS,
     ready: false, // styles + settings loaded
@@ -252,7 +267,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
       className: 'tab',
       'aria-label': 'Expand chat outline',
       'aria-expanded': 'false',
-      title: 'Show outline (Cmd/Ctrl+Shift+O)',
+      title: 'Show outline (Cmd/Ctrl+Shift+O). Alt+↑/↓: previous/next question',
     },
     [icon(ICONS.expand), h('span', { className: 'tab-label' }, ['Outline']), tabCount]
   );
@@ -260,6 +275,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
   const highlights = h('div', { className: 'highlights' });
   const highlighter = createHighlighter(highlights);
   const seekingPill = createSeekingPill(highlights);
+  const resumePill = createResumePill(highlights, onResume, () => onResume(null));
   shadow.append(highlights, panel, tab);
   panel.style.setProperty('--co-top', `${S.layout.panelTop}px`);
   tab.style.setProperty('--co-top', `${S.layout.panelTop}px`);
@@ -414,6 +430,14 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     'keydown',
     (e) => {
       if (!state.visible || !state.ready) return;
+      // Alt+↑/↓: the previous/next question, with the panel open or not.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (editingText(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onStep(e.key === 'ArrowUp' ? -1 : 1);
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.code !== 'KeyO') return;
       e.preventDefault();
       e.stopPropagation();
@@ -506,6 +530,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     setLoadState,
     unreachable: (index) => questions.expand(index),
     seeking: (on, clip = null) => (on ? seekingPill.show(clip) : seekingPill.hide()),
+    offerResume: (offer, clip = null) => (offer ? resumePill.show(offer, clip) : resumePill.hide()),
     setConversation: (convId) => questions.setConversation(convId),
     setVisible(visible) {
       state.visible = visible;
@@ -515,6 +540,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
       clearTimeout(noticeTimer);
       highlighter.clear();
       seekingPill.hide();
+      resumePill.hide();
       state.loading = null;
       state.notice = '';
       state.status = 'no-feed';
@@ -525,6 +551,7 @@ export function createPanel({ onSelect, onLoadAll, onCancelLoad }: PanelCallback
     destroy() {
       highlighter.clear();
       seekingPill.hide();
+      resumePill.hide();
       cleanups.forEach((fn) => fn());
       themeObserver.disconnect();
       state.visible = false;

@@ -17,7 +17,7 @@ import { LOCATION_EVENT } from '../core/events';
 import { watchConversations } from '../data/intercept';
 import type { ApiQuestion, Entry, View } from '../core/types';
 import { LOG, safe, warnOnce } from '../core/util';
-import { createActiveTracker, type ActiveTracker } from './active';
+import { createActiveTracker, mounted, type ActiveTracker } from './active';
 import {
   collect,
   findFeed,
@@ -29,7 +29,8 @@ import {
 } from './extract';
 import { createCoverage, createLedger } from './ledger';
 import { createLoader } from './load-all';
-import { findScrollContainer } from './scroll';
+import { createResume } from './resume';
+import { containerTop, findScrollContainer, isDocScroller } from './scroll';
 import { createSeeker, seekLog } from './seek';
 
 const REBUILD_DEBOUNCE_MS = 150;
@@ -40,6 +41,9 @@ const REBUILD_MAX_WAIT_MS = 1000;
 const CACHE_WAIT_MS = 500;
 const SAVE_DELAY_MS = 1000;
 const API_MIN_INTERVAL_MS = 4000;
+// Stepping up from a question scrolled further than this above the line
+// goes back to that question's own start first.
+const STEP_INSIDE_PX = 16;
 
 // ---------------------------------------------------------------------------
 // Session: everything that lives for one conversation. convId is the
@@ -60,6 +64,10 @@ export interface Session {
   start(): Promise<void>;
   stop(): void;
   scrollTo(index: number): Promise<void>;
+  /** Jumps to the next (1) or previous (-1) question from the one being read. */
+  step(delta: 1 | -1): void;
+  /** Takes the offer to go back to where you were (an index), or dismisses it (null). */
+  resume(index: number | null): void;
   loadAll(): Promise<void>;
   cancelLoad(): void;
 }
@@ -67,6 +75,14 @@ export interface Session {
 /** The turns rendered right now (on a route change: the previous chat's). */
 export function renderedTurns(): Set<Element> {
   return new Set(q.all(findFeed(), S.turn));
+}
+
+// Whether the reader is past the question's start, inside its answer.
+function scrolledInto(entry: Entry, container: Element): boolean {
+  // Not rendered while it is the one being read: far above, deep in its answer.
+  if (!mounted(entry)) return true;
+  const line = containerTop(container) + S.layout.scrollOffset;
+  return entry.node.getBoundingClientRect().top < line - STEP_INSIDE_PX;
 }
 
 // `leftover`: turns of the previous conversation still in the page when
@@ -81,6 +97,8 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   let bodyObserver: MutationObserver | null = null;
   let tracker: ActiveTracker | null = null;
   let items: Entry[] = [];
+  let active = -1; // the question being read
+  let settled = false; // see RenderResult.settled
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
   let acquireFrame = 0;
@@ -94,6 +112,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   const coverage = createCoverage();
   const ledger = createLedger();
   const cache = convId ? Sources.createCache(convId) : null;
+  const resume = convId ? createResume(convId, view) : null;
   let unlistenUserScroll: (() => void) | null = null;
   const seeker = createSeeker({
     view,
@@ -226,6 +245,9 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     debugState.questions = items.length;
     debugState.rendered = result.items.length;
     const canLoadEarlier = !!findLoadEarlierButton();
+    // Final: from the API (the cache's "complete" is last visit's guess),
+    // or when the API failed and the page-only list is all there is.
+    settled = ledger.isAuthoritative() || apiState === 'failed';
     view.render({
       // The DOM may show nothing for a moment; what we know is still valid.
       status: items.length ? 'ok' : result.status,
@@ -233,9 +255,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
       items,
       canLoadEarlier,
       incomplete: !complete && (canLoadEarlier || coverage.incomplete()),
-      // Final: from the API (the cache's "complete" is last visit's guess),
-      // or when the API failed and the page-only list is all there is.
-      settled: ledger.isAuthoritative() || apiState === 'failed',
+      settled,
     });
     updateTracker();
     if (ledger.takeRefreshRequest()) scheduleApiRefresh();
@@ -248,9 +268,31 @@ export function createSession(view: View, convId: string | null, leftover?: Read
       tracker.destroy();
       tracker = null;
     }
-    if (!container) return view.setActive(-1);
-    if (!tracker) tracker = createActiveTracker(container, () => feed, view.setActive);
+    if (!container) return onActive(-1);
+    if (!tracker) tracker = createActiveTracker(container, () => feed, onActive);
     tracker.setTargets(items);
+  }
+
+  function onActive(index: number): void {
+    active = index;
+    view.setActive(index);
+    const container = tracker?.container;
+    resume?.update(items, index, settled, container && !isDocScroller(container) ? container : null);
+  }
+
+  // From the question being read (or the one a running jump goes to, so
+  // a key held down keeps going). Up from inside a question's answer goes
+  // back to that question's start first, like "previous" in a player.
+  function step(delta: 1 | -1): void {
+    if (!items.length) return;
+    const jumping = tracker?.pinnedIndex() ?? null;
+    const from = jumping ?? active;
+    let to = from + delta;
+    if (from < 0) to = delta > 0 ? 0 : items.length - 1;
+    else if (delta < 0 && jumping === null && tracker && scrolledInto(items[from], tracker.container)) to = from;
+    if (to < 0 || to >= items.length) return;
+    resume?.done();
+    seeker.scrollTo(to);
   }
 
   // ----- cache --------------------------------------------------------------
@@ -324,6 +366,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
 
   function stop() {
     if (saveTimer) saveNow();
+    resume?.stop();
     stopped = true;
     loader.cancel();
     seeker.cancel();
@@ -345,7 +388,18 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     items = [];
   }
 
-  return { start, stop, scrollTo: seeker.scrollTo, loadAll: loader.loadAll, cancelLoad: loader.cancel };
+  return {
+    start,
+    stop,
+    scrollTo: seeker.scrollTo,
+    step,
+    resume(index) {
+      resume?.done();
+      if (index !== null) seeker.scrollTo(index);
+    },
+    loadAll: loader.loadAll,
+    cancelLoad: loader.cancel,
+  };
 }
 
 // ---------------------------------------------------------------------------

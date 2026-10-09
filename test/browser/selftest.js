@@ -212,9 +212,50 @@
       const expectNow = all();
       check(window.apiCalls === callsNow && labels().join('|') === expectNow.join('|'), 'URL change within the same chat keeps the session', `apiCalls ${callsNow} -> ${window.apiCalls}; ${labels().join(' | ')}`);
 
+      // ---- Alt+↑/↓: previous / next question --------------------------------
+      const articleOf = (i) => userArticles().find((a) => a.querySelector('h2').textContent.replace(/\s+/g, ' ').includes(chat.questions[i].replace(/\s+/g, ' ').slice(0, 25)));
+      const atLine = (i) => { const a = articleOf(i); return a && Math.abs(a.getBoundingClientRect().top - scroller().getBoundingClientRect().top - 80) <= 3; };
+      const alt = (target, dir) => key(target, { key: dir, code: dir, altKey: true });
+      const last = labels().length - 1;
+      scroller().scrollTop = scroller().scrollHeight;
+      check(await waitFor(() => current() === last, 2000), 'at the bottom the last question is active', `current=${current()}`);
+      alt(document.body, 'ArrowUp');
+      // Inside the last answer, up goes back to the last question's start first.
+      check(await waitFor(() => (current() === last && atLine(last)) || (current() === last - 1 && atLine(last - 1)), 8000), 'Alt+↑ goes to the start of the question being read, or the one before', `current=${current()}`);
+      const stepFrom = current();
+      await sleep(300);
+      alt(document.body, 'ArrowUp');
+      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1) && flashing(articleOf(stepFrom - 1)), 8000), 'Alt+↑ again: the previous question, flashed', `current=${current()}`);
+      await sleep(300);
+      alt(document.body, 'ArrowUp');
+      check(await waitFor(() => current() === stepFrom - 2 && atLine(stepFrom - 2), 8000), 'Alt+↑ once more: the one before that', `current=${current()}`);
+      await sleep(300);
+      alt(document.body, 'ArrowDown');
+      check(await waitFor(() => current() === stepFrom - 1 && atLine(stepFrom - 1), 8000), 'Alt+↓: the next question', `current=${current()}`);
+      const field = document.body.appendChild(document.createElement('textarea'));
+      field.value = 'a draft';
+      field.focus();
+      check(alt(field, 'ArrowUp'), 'Alt+↑ in a field with text is left to the field');
+      field.value = '';
+      check(!alt(field, 'ArrowUp'), 'Alt+↑ in an empty field steps (claude.ai keeps its message box focused)');
+      field.remove();
+      check(await waitFor(() => current() === stepFrom - 2 && atLine(stepFrom - 2), 8000), 'that step went up', `current=${current()}`);
+      const place = stepFrom - 2;
+      await sleep(1500); // the place is saved a second after it settles
+
       fixture.navigate('/chat/bbbbbbbb-0000-4000-8000-000000000002');
       const allB = fixture.CHATS['bbbbbbbb-0000-4000-8000-000000000002'].questions.map(toLabel);
       check(await waitFor(() => labels().join('|') === allB.join('|'), 3000), 'other chat: its complete list', labels().join(' | '));
+
+      // ---- continue where you left off ---------------------------------------
+      const pill = () => root().querySelector('.resume');
+      check(pill().hidden, 'no offer in a chat seen for the first time');
+      fixture.navigate('/chat/aaaaaaaa-0000-4000-8000-000000000001');
+      check(await waitFor(() => !pill().hidden && labels().length > place, 5000), 'back in the first chat: offer to continue where you left off');
+      check(pill().querySelector('.resume-label').textContent === labels()[place], 'it names the question you were reading', `${pill().querySelector('.resume-label').textContent} vs ${labels()[place]}`);
+      pill().querySelector('.resume-go').click();
+      check(pill().hidden, 'taking the offer removes it');
+      check(await waitFor(() => current() === place && atLine(place), 15000), 'and goes to that question', `current=${current()}`);
       return;
     }
 

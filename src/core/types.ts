@@ -65,6 +65,12 @@ export interface LoadState {
   reason?: LoadReason;
 }
 
+/** The question you were reading when you last left the chat. */
+export interface ResumeOffer {
+  index: number;
+  label: string;
+}
+
 /** What a session needs from the panel. */
 export interface View {
   render(result: RenderResult): void;
@@ -86,4 +92,9 @@ export interface View {
    * the chat (`clip`, its scroller; null: the viewport), or stop saying so.
    */
   seeking(on: boolean, clip?: Element | null): void;
+  /**
+   * Offer to go back to the question you were reading when you last left
+   * this chat (shown over `clip`, as `seeking`), or take the offer away.
+   */
+  offerResume(offer: ResumeOffer | null, clip?: Element | null): void;
 }

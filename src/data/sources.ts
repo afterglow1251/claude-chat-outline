@@ -117,15 +117,40 @@ export function saveStars(convId: string, keys: readonly string[]): void {
   else storageRemove([key]);
 }
 
-// Keeps the cache bounded: the most recent chats, none older than 90 days.
+// ---------------------------------------------------------------------------
+// Where you were in each chat: the matching key of the question you were
+// reading when you left (see resume.ts). Pruned with the cache.
+// ---------------------------------------------------------------------------
+
+const PLACE_PREFIX = 'outline-place:';
+
+interface StoredPlace {
+  t?: number;
+  key?: unknown;
+}
+
+export async function loadPlace(convId: string): Promise<string | null> {
+  const key = PLACE_PREFIX + convId;
+  const place = (await storageGet({ [key]: null }))[key] as StoredPlace | null | undefined;
+  return place && typeof place.key === 'string' && place.key ? place.key : null;
+}
+
+export function savePlace(convId: string, questionKey: string): void {
+  storageSet({ [PLACE_PREFIX + convId]: { t: Date.now(), key: questionKey } });
+}
+
+// Keeps the cache and the places bounded: the most recent chats, none
+// older than 90 days.
 export async function pruneCache(): Promise<void> {
   const all = await storageGet(null);
   const now = Date.now();
-  const records = Object.keys(all)
-    .filter((k) => k.startsWith(CACHE_PREFIX))
-    .map((k) => ({ k, t: (all[k] as StoredRecord | null)?.t || 0 }))
-    .toSorted((a, b) => b.t - a.t);
-  storageRemove(records.filter((r, i) => i >= CACHE_MAX_CHATS || now - r.t > CACHE_MAX_AGE_MS).map((r) => r.k));
+  for (const prefix of [CACHE_PREFIX, PLACE_PREFIX]) {
+    const records = Object.keys(all)
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => ({ k, t: (all[k] as StoredRecord | null)?.t || 0 }))
+      .toSorted((a, b) => b.t - a.t);
+    storageRemove(records.filter((r, i) => i >= CACHE_MAX_CHATS || now - r.t > CACHE_MAX_AGE_MS).map((r) => r.k));
+  }
 }
 
 // ---------------------------------------------------------------------------

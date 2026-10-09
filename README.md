@@ -18,11 +18,13 @@ Works in Chrome, Edge, Brave, Arc and other Chromium browsers (114+).
 
 - Click a question to jump to it. The one you're reading is highlighted.
 - Search the list and star questions to keep important ones at hand.
+- <kbd>Alt</kbd>+<kbd>↑</kbd> / <kbd>Alt</kbd>+<kbd>↓</kbd> jumps to the previous or next question, with the panel open or closed.
+- Open a chat you were reading further up, and it offers to take you back there.
 - <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> shows or hides the panel.
 
 ## Privacy
 
-Runs only on claude.ai and reads the open chat through claude.ai's own API. Nothing is sent anywhere else. Settings and a cache of question texts stay in local storage.
+Runs only on claude.ai and reads the open chat through claude.ai's own API. Nothing is sent anywhere else. Settings, a cache of question texts and the question you last read in each chat stay in local storage.
 
 ## Develop
 

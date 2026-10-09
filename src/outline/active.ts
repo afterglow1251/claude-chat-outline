@@ -27,6 +27,8 @@ export interface ActiveTracker {
   /** Report this item as active until unpin(), whatever is on screen. */
   pin(index: number): void;
   unpin(): void;
+  /** The pinned item (a jump is running to it), or null. */
+  pinnedIndex(): number | null;
   destroy(): void;
 }
 
@@ -190,6 +192,7 @@ export function createActiveTracker(
       pinned = null;
       schedule();
     },
+    pinnedIndex: () => pinned,
     destroy() {
       if (frame) cancelAnimationFrame(frame);
       clearTimeout(fallback);
