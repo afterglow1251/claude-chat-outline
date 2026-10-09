@@ -69,17 +69,18 @@
   // ----- the timeline --------------------------------------------------------
 
   const mod = isMac ? '⌘' : 'Ctrl';
+  // In play order. Each chapter starts where the one before it ends.
   const CHAPTERS = [
-    { title: 'Every question in one panel', dur: 4.5 },
-    { title: 'Click to jump', dur: 5.9 },
-    { title: 'Follows as you read', dur: 4.6 },
-    { title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
-    { title: 'Search your questions', dur: 7.2 },
-    { title: 'Star the ones that matter', dur: 6 },
-    { title: "Reach what isn't loaded yet", dur: 8.0 },
-    { title: `${mod} Shift O to hide`, dur: 4.4 },
-    { title: 'Picks up where you left off', dur: 9.2 },
-    { title: 'Light and dark', dur: 4.2 },
+    { id: 'panel', title: 'Every question in one panel', dur: 4.5 },
+    { id: 'click', title: 'Click to jump', dur: 5.9 },
+    { id: 'follow', title: 'Follows as you read', dur: 4.6 },
+    { id: 'search', title: 'Search your questions', dur: 7.2 },
+    { id: 'star', title: 'Star the ones that matter', dur: 6 },
+    { id: 'unloaded', title: "Reach what isn't loaded yet", dur: 8.0 },
+    { id: 'step', title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
+    { id: 'hide', title: `${mod} Shift O to hide`, dur: 4.4 },
+    { id: 'theme', title: 'Light and dark', dur: 4.2 },
+    { id: 'resume', title: 'Picks up where you left off', dur: 9.2 },
   ];
   let acc = 0;
   for (const c of CHAPTERS) {
@@ -109,6 +110,7 @@
   // The state of the scene at time t.
   function stateAt(T) {
     const ci = chapterAt(T);
+    const id = CHAPTERS[ci].id;
     const t = T - CHAPTERS[ci].start;
     const s = {
       chapter: ci,
@@ -135,13 +137,13 @@
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
     };
 
-    if (ci === 0) {
+    if (id === 'panel') {
       s.panel = out(seg(t, 0.3, 1.1));
       s.listIn = seg(t, 0.8, 2.4);
       s.cursor = cursorPath(t, [[0, 'rest']]);
     }
 
-    if (ci === 1) {
+    if (id === 'click') {
       // Question 3 is above what the list shows (it follows question 10):
       // scroll the list up to it first, then click it.
       s.cursor = cursorPath(t, [[0.2, 'rest'], [1.0, 'list'], [2.0, 'list'], [2.6, 'item:2']]);
@@ -158,21 +160,21 @@
       }
     }
 
-    if (ci === 2) {
+    if (id === 'follow') {
       s.chatPos = lerp(2, 7.7, inOut(seg(t, 0.4, 4.2)));
       s.active = Math.floor(s.chatPos + 0.2);
       s.cursor = cursorPath(t, [[0, 'item:2'], [0.8, 'chat']]);
       s.wheel = t > 0.6 && t < 4.3;
     }
 
-    if (ci === 3) {
-      // Reading inside question 8's answer: up goes to its start, up again
-      // to question 7, down back to 8. Each jump flashes, like a click.
-      s.cursor = cursorPath(t, [[0, 'chat']]);
+    if (id === 'step') {
+      // From question 1: down, down again, back up. Each jump flashes, like a click.
+      s.stars = [4, 8];
+      s.cursor = cursorPath(t, [[0, 'item:0'], [0.6, 'chat']]);
       const presses = [
-        [0.8, '↑', 7.7, 7],
-        [2.4, '↑', 7, 6],
-        [4.0, '↓', 6, 7],
+        [0.8, '↓', 0, 1],
+        [2.4, '↓', 1, 2],
+        [4.0, '↑', 2, 1],
       ];
       const shown = presses.find(([at]) => t >= at - 0.4 && t < at + 0.5);
       s.keys = shown ? 1 : 0;
@@ -186,13 +188,13 @@
         s.active = to;
         s.flash = { index: to, at: at + 0.6 };
       } else {
-        s.chatPos = 7.7;
-        s.active = 7;
+        s.chatPos = 0;
+        s.active = 0;
       }
     }
 
-    if (ci === 4) {
-      s.chatPos = 7;
+    if (id === 'search') {
+      s.chatPos = 7.7;
       s.active = 7;
       const typeStart = 1.4;
       const word = 'i love claude';
@@ -203,12 +205,12 @@
       s.hover = t > 4.2 ? 4 : -1;
       if (t >= 4.7) {
         s.active = 4;
-        s.chatPos = lerp(7, 4, inOut(seg(t, 4.75, 5.8)));
+        s.chatPos = lerp(7.7, 4, inOut(seg(t, 4.75, 5.8)));
         s.flash = { index: 4, at: 5.4 };
       }
     }
 
-    if (ci === 5) {
+    if (id === 'star') {
       s.chatPos = 4;
       s.active = 4;
       s.cursor = cursorPath(t, [[0, 'item:4'], [1.0, 'star:4'], [1.6, 'star:4'], [2.4, 'star:8'], [3.1, 'star:8'], [3.9, 'starBtn']]);
@@ -218,7 +220,7 @@
       s.starOnly = t >= 4.1;
     }
 
-    if (ci === 6) {
+    if (id === 'unloaded') {
       // A long chat: the early questions aren't on the page.
       s.stars = [4, 8];
       s.unloadedBelow = 6;
@@ -245,11 +247,11 @@
       }
     }
 
-    if (ci === 7) {
+    if (id === 'hide') {
       s.stars = [4, 8];
-      s.chatPos = 0;
-      s.active = 0;
-      s.cursor = cursorPath(t, [[0, 'item:0'], [0.8, 'chat']]);
+      s.chatPos = 1;
+      s.active = 1;
+      s.cursor = cursorPath(t, [[0, 'chat']]);
       const hide = 0.9;
       const show = 2.9;
       s.keys = t >= hide - 0.4 && t < hide + 0.5 ? 1 : t >= show - 0.4 && t < show + 0.5 ? 1 : 0;
@@ -257,10 +259,11 @@
       s.panel = 1 - out(seg(t, hide, hide + 0.45)) + out(seg(t, show, show + 0.45));
     }
 
-    if (ci === 8) {
+    if (id === 'resume') {
       // Read question 4, go to another chat, come back: claude.ai opens the
       // chat at its end, and the extension offers question 4 again.
       s.stars = [4, 8];
+      s.dark = true;
       const leave = 2.3;
       const back = 3.8;
       const take = 5.9;
@@ -270,7 +273,7 @@
       s.away = t >= leave && t < back;
       s.side = s.away ? 1 : 0;
       if (t < leave) {
-        s.chatPos = lerp(0, 3, inOut(seg(t, 0.2, 1.5)));
+        s.chatPos = lerp(1, 3, inOut(seg(t, 0.2, 1.5)));
         s.active = Math.floor(s.chatPos + 0.2);
       } else {
         // Opened again at the end, then back to question 4 from the offer.
@@ -282,10 +285,10 @@
       if (t >= take) s.flash = { index: 3, at: take + 1.1 };
     }
 
-    if (ci === 9) {
+    if (id === 'theme') {
       s.stars = [4, 8];
-      s.chatPos = 3;
-      s.active = 3;
+      s.chatPos = 1;
+      s.active = 1;
       s.cursor = cursorPath(t, [[0, 'chat']]);
       s.dark = t >= 1.0;
     }
