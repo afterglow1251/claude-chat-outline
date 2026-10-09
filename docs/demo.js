@@ -77,6 +77,7 @@
     { title: 'Star the ones that matter', dur: 6 },
     { title: "Reach what isn't loaded yet", dur: 6.6 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
+    { title: `${mod} ↑ ↓ for the first and last`, dur: 7.6 },
     { title: 'Light and dark', dur: 4.2 },
   ];
   let acc = 0;
@@ -122,6 +123,8 @@
       unloadedBelow: 0, // questions before this index aren't loaded
       loading: 0,
       keys: 0,
+      caps: [mod, '⇧', 'O'], // the keys shown
+      focusRow: -1, // the row with keyboard focus
       dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
       cursor: cursorPath(0, [[0, 'rest']]),
@@ -218,6 +221,30 @@
     }
 
     if (ci === 7) {
+      // In the panel: Cmd+↓ to the last question, Enter jumps there; Cmd+↑
+      // back to the first, Enter again.
+      s.stars = [4, 8];
+      s.cursor = cursorPath(t, [[0, 'chat']]);
+      const presses = [
+        [0.9, [mod, '↓']],
+        [1.9, ['↵']],
+        [3.8, [mod, '↑']],
+        [4.8, ['↵']],
+      ];
+      const shown = presses.find(([at]) => t >= at - 0.4 && t < at + 0.5);
+      s.keys = shown ? 1 : 0;
+      if (shown) s.caps = shown[1];
+      s.keysDown = presses.some(([at]) => t >= at - 0.1 && t < at + 0.2);
+      s.focusRow = t >= 3.85 ? 0 : t >= 0.95 ? N - 1 : 0;
+      const toLast = inOut(seg(t, 1.95, 3.0));
+      const toFirst = inOut(seg(t, 4.85, 5.9));
+      s.active = t >= 4.85 ? 0 : t >= 1.95 ? N - 1 : 0;
+      s.chatPos = lerp(lerp(0, N - 1, toLast), 0, toFirst);
+      if (t >= 4.85) s.flash = { index: 0, at: 5.7 };
+      else if (t >= 1.95) s.flash = { index: N - 1, at: 2.8 };
+    }
+
+    if (ci === 8) {
       s.stars = [4, 8];
       s.chatPos = 0;
       s.active = 0;
@@ -271,7 +298,6 @@
           <p class="s-side-i">Postgres indexes</p>
           <p class="s-side-i">Cover letter draft</p>
           <p class="s-side-i">Sourdough timing</p>
-          <div class="s-user"><b>A</b>Alex<span>· Pro</span></div>
         </aside>
         <section class="s-main">
           <header class="s-head">Habit tracker app<i class="s-ico">${ICON.chevron}</i></header>
@@ -419,6 +445,7 @@
       if (visible) shown++;
       row.classList.toggle('active', k === s.active);
       row.classList.toggle('hover', k === s.hover);
+      row.classList.toggle('focus', k === s.focusRow);
       row.classList.toggle('starred', starred);
       const enter = clamp(s.listIn * (N + 4) - k, 0, 1);
       row.style.opacity = enter;
@@ -430,8 +457,8 @@
     filterBox.classList.toggle('focus', s.focusFilter);
     filterBox.classList.toggle('has-text', !!s.filter);
 
-    // Keep the active row in view, like the real panel.
-    const activeRow = rows[s.active];
+    // Keep the active row (or the one with keyboard focus) in view, like the real panel.
+    const activeRow = rows[s.focusRow >= 0 ? s.focusRow : s.active];
     if (activeRow && !activeRow.hidden) {
       const follow = clamp(activeRow.offsetTop - list.clientHeight * 0.4, 0, list.scrollHeight - list.clientHeight);
       const want = lerp(follow, 0, s.listUp);
@@ -443,6 +470,11 @@
     keys.style.opacity = s.keys;
     keys.style.transform = `translate(-50%, ${lerp(12, 0, s.keys)}px) scale(${lerp(0.96, 1, s.keys)})`;
     keys.classList.toggle('down', !!s.keysDown);
+    const caps = s.caps.join(' ');
+    if (keys.dataset.caps !== caps) {
+      keys.dataset.caps = caps;
+      keys.innerHTML = s.caps.map((k) => `<kbd>${k}</kbd>`).join('');
+    }
 
     // Cursor.
     const a = target(s.cursor.from);
