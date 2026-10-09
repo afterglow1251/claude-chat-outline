@@ -7,7 +7,7 @@
 import { h, icon } from '../core/dom';
 import type { CodeBlock, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
-import { createListTools, listKeys, listScroll, markPicked, type ListTools } from './list-tools';
+import { createListTools, listKeys, listScroll, markCurrent, type ListTools } from './list-tools';
 
 const PREVIEW_LINES = 6;
 // Opening the view again within this time shows what was read, unasked.
@@ -33,6 +33,8 @@ export interface CodeList {
   setConversation(convId: string | null): void;
   /** Focuses the first block; false if there is none. */
   focus(): boolean;
+  /** The question being read (-1: none): its blocks are marked, and kept in view while shown. */
+  setActive(question: number): void;
   destroy(): void;
 }
 
@@ -119,7 +121,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     message.textContent = text;
   }
 
-  let picked: string | null = null; // the block last jumped to, by its star key
+  let active = -1; // the question being read: its blocks are marked
   let revealPending = false; // opened, not yet scrolled to where it opens
   function reveal() {
     revealPending = false;
@@ -135,7 +137,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
       const b = blocks[Number(li.dataset.index)];
       const key = starKey(b);
       tools.patchStar(li.querySelector('.star')!, key, `${b.language || 'code'} block`);
-      markPicked(li, key === picked);
+      markCurrent(li, b.question === active);
       const q = tools.query;
       const matches = !q || b.language.toLowerCase().includes(q) || b.code.toLowerCase().includes(q);
       li.hidden = !matches || (tools.only && !tools.has(key));
@@ -162,7 +164,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     unsubscribe ??= Store.subscribe(id, (conversation) => {
       if (!element.hidden && conversation.code) draw(conversation.code);
     });
-    // Opened: at the end, or at the block picked last, once there is a list.
+    // Opened: at the blocks of the answer being read, else at the end, once there is a list.
     revealPending = true;
     const known = Store.peek(id).code;
     if (known) draw(known);
@@ -189,12 +191,10 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     const index = Number(li?.dataset.index);
     if (!li || !blocks?.[index]) return;
     const copyBtn = el.closest<HTMLButtonElement>('.code-copy');
-    // The row keeps the focus, so S and the arrows go on from it, and is
-    // marked as the one jumped to.
+    // The row keeps the focus, so S and the arrows go on from it. The
+    // jump makes its question the one being read, which marks it.
     if (!copyBtn) {
       keys.focusRow(li);
-      picked = starKey(blocks[index]);
-      applyFilter();
       return onSelect(blocks[index].question, target(index));
     }
     void copy(blocks[index].code).then((ok) => {
@@ -215,7 +215,7 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     show,
     setConversation(id) {
       convId = id;
-      picked = null;
+      active = -1;
       tools.setConversation(id);
       unsubscribe?.();
       unsubscribe = null;
@@ -225,6 +225,12 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
       onCount(null);
     },
     focus: () => keys.focusFirst(),
+    setActive(question) {
+      if (question === active) return;
+      active = question;
+      applyFilter();
+      if (!element.hidden) scrolling.follow();
+    },
     destroy() {
       unsubscribe?.();
       unsubscribe = null;

@@ -696,7 +696,13 @@ export function createPanel({
     host,
     shadow,
     render,
-    setActive: (index) => questions.setActive(index),
+    // The question being read, for every view: Diagrams and Code mark what
+    // is in its answer.
+    setActive(index) {
+      questions.setActive(index);
+      diagrams.setActive(index);
+      code.setActive(index);
+    },
     highlight: (target, clip) => highlighter.show(target, clip),
     setLoadState,
     unreachable: (index) => questions.expand(index),

@@ -546,7 +546,7 @@ li:has(:focus-visible) .star,
 
 /* ----- stars on diagrams and code (see stars.ts) ------------------------- */
 
-/* The diagram or code block jumped to last, marked like the question being read. */
+/* The diagrams and code in the answer being read, marked like its question. */
 .diagram-row[aria-current='true'],
 .code-row[aria-current='true'] {
   background: var(--co-active-bg);

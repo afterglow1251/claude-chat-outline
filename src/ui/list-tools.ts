@@ -141,9 +141,10 @@ export function createListTools({ scope, what, onChange, onDown }: ListToolsOpti
 }
 
 /**
- * Where a list opens: at the row jumped to last if there is one, else at its
- * end (the latest). At the end, it stays there while rows still settle to
- * their size (live previews), until you scroll it yourself.
+ * Where a list opens: at the rows of the answer being read if it has any,
+ * else at its end (the latest). At the end, it stays there while rows still
+ * settle to their size (live previews), until you scroll it yourself. As
+ * you read on, `follow` keeps the answer's rows in view.
  */
 export function listScroll(scroller: HTMLElement, list: HTMLElement) {
   let stick = false;
@@ -154,22 +155,33 @@ export function listScroll(scroller: HTMLElement, list: HTMLElement) {
     scroller.addEventListener(type, () => (stick = false), { passive: true });
   }
   const resize = new ResizeObserver(() => stick && toEnd());
+  const current = () => list.querySelector<HTMLElement>(':scope > [aria-current="true"]:not([hidden])');
   resize.observe(list);
   return {
     reveal() {
-      const row = list.querySelector<HTMLElement>(':scope > [aria-current="true"]:not([hidden])');
+      const row = current();
       stick = !row;
       if (!row) return toEnd();
       const box = scroller.getBoundingClientRect();
       const r = row.getBoundingClientRect();
       scroller.scrollTop += r.top + r.height / 2 - (box.top + box.height / 2);
     },
+    follow() {
+      const row = current();
+      if (!row) return;
+      stick = false;
+      // Just enough to have it in view, as the question list does.
+      const box = scroller.getBoundingClientRect();
+      const r = row.getBoundingClientRect();
+      if (r.top < box.top) scroller.scrollTop -= box.top - r.top;
+      else if (r.bottom > box.bottom) scroller.scrollTop += Math.min(r.bottom - box.bottom, r.top - box.top);
+    },
     stop: () => resize.disconnect(),
   };
 }
 
-/** Marks the row jumped to last, as the question being read is marked. */
-export function markPicked(row: HTMLElement, on: boolean): void {
+/** Marks a row in the answer being read, as the question being read is marked. */
+export function markCurrent(row: HTMLElement, on: boolean): void {
   if (on) row.setAttribute('aria-current', 'true');
   else row.removeAttribute('aria-current');
 }

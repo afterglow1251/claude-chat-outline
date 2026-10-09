@@ -14,7 +14,7 @@ import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind, DiagramTarget } from '../core/types';
 import type { PreviewMessage } from '../preview/preview';
 import * as Store from '../data/store';
-import { createListTools, listKeys, listScroll, markPicked } from './list-tools';
+import { createListTools, listKeys, listScroll, markCurrent } from './list-tools';
 
 const REACT_ICON = 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -50,6 +50,8 @@ export interface DiagramList {
   setConversation(convId: string | null): void;
   /** Focuses the first diagram; false if there is none. */
   focus(): boolean;
+  /** The question being read (-1: none): its diagrams are marked, and kept in view while shown. */
+  setActive(question: number): void;
   destroy(): void;
 }
 
@@ -244,7 +246,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     message.textContent = text;
   }
 
-  let picked: string | null = null; // the diagram last jumped to, by its star key
+  let active = -1; // the question being read: its diagrams are marked
   let revealPending = false; // opened, not yet scrolled to where it opens
   function reveal() {
     revealPending = false;
@@ -267,7 +269,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
       const index = Number(li.dataset.index);
       const key = starKey(index);
       tools.patchStar(li.querySelector('.star')!, key, diagrams[index].title);
-      markPicked(li, key === picked);
+      markCurrent(li, diagrams[index].question === active);
       const matches = !tools.query || diagrams[index].title.toLowerCase().includes(tools.query);
       li.hidden = !matches || (tools.only && !tools.has(key));
       if (!li.hidden) visible++;
@@ -297,7 +299,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     unsubscribe ??= Store.subscribe(id, (conversation) => {
       if (!element.hidden && conversation.diagrams) draw(conversation.diagrams);
     });
-    // Opened: at the end, or at the diagram picked last, once there is a list.
+    // Opened: at the diagrams of the answer being read, else at the end, once there is a list.
     revealPending = true;
     const known = Store.peek(id).diagrams;
     if (known) draw(known);
@@ -321,11 +323,9 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     const li = (e.target as Element).closest<HTMLElement>('.diagram-row');
     const index = Number(li?.dataset.index);
     if (!li || !diagrams?.[index]) return;
-    // The row keeps the focus, so S and the arrows go on from it, and is
-    // marked as the one jumped to.
+    // The row keeps the focus, so S and the arrows go on from it. The
+    // jump makes its question the one being read, which marks it.
     keys.focusRow(li);
-    picked = starKey(index);
-    applyFilter();
     onSelect(diagrams[index].question, target(index));
   });
 
@@ -334,7 +334,7 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
     show,
     setConversation(id) {
       convId = id;
-      picked = null;
+      active = -1;
       tools.setConversation(id);
       unsubscribe?.();
       unsubscribe = null;
@@ -345,6 +345,12 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
       onCount(null);
     },
     focus: () => keys.focusFirst(),
+    setActive(question) {
+      if (question === active) return;
+      active = question;
+      applyFilter();
+      if (!element.hidden) scrolling.follow();
+    },
     destroy() {
       unsubscribe?.();
       unsubscribe = null;
