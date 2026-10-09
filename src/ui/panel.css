@@ -286,7 +286,8 @@ svg {
 
 .questions,
 .diagrams,
-.code {
+.code,
+.starred {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -392,7 +393,8 @@ svg {
   padding: 0;
 }
 
-.list li {
+.list li,
+.q-row {
   position: relative;
   display: flex;
   flex-wrap: wrap; /* the detail block, when shown, takes a row of its own */
@@ -450,7 +452,8 @@ li[data-expanded] .item {
   color: var(--co-fg);
 }
 
-.list li:hover {
+.list li:hover,
+.q-row:hover {
   background: var(--co-hover);
 }
 
@@ -546,15 +549,77 @@ li:has(:focus-visible) .star,
 
 /* ----- stars on diagrams and code (see stars.ts) ------------------------- */
 
-/* The diagrams and code in the answer being read, marked like its question. */
+/* The diagrams and code in the answer being read, marked like its question
+   (in the Starred overview, that question too). */
 .diagram-row[aria-current='true'],
-.code-row[aria-current='true'] {
+.code-row[aria-current='true'],
+.q-row[aria-current='true'] {
   background: var(--co-active-bg);
 }
 
 .diagram-row[aria-current='true']:hover,
-.code-row[aria-current='true']:hover {
+.code-row[aria-current='true']:hover,
+.q-row[aria-current='true']:hover {
   background: var(--co-active-hover-bg);
+}
+
+.q-row[aria-current='true'] .item {
+  color: var(--co-fg);
+}
+
+/* The Starred overview: questions, diagrams and code in one list, all of
+   them or one kind, picked with the chips under the filter. */
+.kinds {
+  display: flex;
+  flex-wrap: wrap; /* a narrow panel: a second line rather than a chip cut off */
+  gap: 4px;
+  padding: 0 8px 8px 10px;
+  border-bottom: 1px solid var(--co-border);
+}
+
+.search:has(+ .kinds) {
+  border-bottom: 0;
+}
+
+.kind-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--co-border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--co-muted);
+}
+
+.kind-chip:hover:not(:disabled) {
+  color: var(--co-fg);
+  background: var(--co-hover);
+}
+
+.kind-chip[aria-pressed='true'] {
+  color: var(--co-accent);
+  border-color: var(--co-accent);
+  background: var(--co-active-bg);
+}
+
+.kinds[data-picked] .kind-chip:focus-visible {
+  outline: none;
+}
+
+.kind-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kind-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.starred-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .diagram-line {
@@ -618,6 +683,22 @@ li:has(:focus-visible) .star,
   width: 100%;
   height: 100%;
   object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+/* Rows and previews are not text: a drag or a double click across them
+   must not paint them selected (the code's text itself stays selectable). */
+.diagram-row,
+.code-row,
+.q-row,
+.list li,
+.thumb-box,
+.live-box {
+  user-select: none;
+}
+
+.code-preview {
+  user-select: text;
 }
 
 /* Appearing: the box has its place from the start and shimmers until the

@@ -7,7 +7,8 @@
 import { h, icon } from '../core/dom';
 import type { CodeBlock, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
-import { createListTools, listKeys, listScroll, markCurrent, type ListTools } from './list-tools';
+import { createListTools, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
+import type { StarSet } from './star-set';
 
 const PREVIEW_LINES = 6;
 // Opening the view again within this time shows what was read, unasked.
@@ -19,10 +20,77 @@ const ICON_COPIED = 'M5 12.5l4.5 4.5L19 7.5';
 
 const TEXT = {
   none: 'No code in this chat.',
-  noneStarred: 'No starred code.',
   noMatch: 'No code matches.',
   failed: "Couldn't read this chat's code.",
 };
+
+// The line a block is found by in the chat: its longest among the first few
+// (a lone "{" or "}" would match any block), squashed like the finder's.
+function findLine(code: string): string {
+  const lines = code
+    .split('\n')
+    .slice(0, PREVIEW_LINES)
+    .map((l) => l.replace(/\s+/g, ' ').trim());
+  return lines.reduce((a, b) => (b.length > a.length ? b : a), '');
+}
+
+/** Which block of its answer it is, among those found by the same line: what a jump looks for. */
+export function codeTarget(blocks: readonly CodeBlock[], index: number): DiagramTarget {
+  const b = blocks[index];
+  const line = findLine(b.code);
+  const nth = blocks.slice(0, index).filter((o) => o.question === b.question && findLine(o.code) === line).length;
+  return { kind: 'code', title: line, nth };
+}
+
+/** A block's star survives reloads: kept by its question and a fingerprint of its code (a changed block is a new one). */
+export function codeStarKey(b: CodeBlock): string {
+  let hash = 5381;
+  for (let i = 0; i < b.code.length; i++) hash = ((hash << 5) + hash + b.code.charCodeAt(i)) | 0;
+  return `${b.question}|${(hash >>> 0).toString(36)}`;
+}
+
+/** Whether the filter's text is in the block's language or code. */
+export const codeMatches = (b: CodeBlock, query: string) =>
+  !query || b.language.toLowerCase().includes(query) || b.code.toLowerCase().includes(query);
+
+// Its first lines, without blank ones at the end of what is shown.
+const preview = (code: string) => code.split('\n').slice(0, PREVIEW_LINES).join('\n').replace(/\s+$/, '');
+
+/** A block's row content: language, question, copy and star, then its first lines. */
+export function codeRow(b: CodeBlock): HTMLElement[] {
+  const lines = b.code.split('\n').length;
+  const more = lines > PREVIEW_LINES ? ` · ${lines} lines` : '';
+  const copyBtn = h(
+    'button',
+    { type: 'button', className: 'code-copy', 'aria-label': 'Copy code', title: 'Copy code' },
+    [icon(ICON_COPY)]
+  );
+  const jump = h('button', { type: 'button', className: 'code-jump', title: 'Jump to it in the chat' }, [
+    h('span', { className: 'code-lang' }, [b.language || 'Code']),
+    h('span', { className: 'code-meta' }, [`Question ${b.question + 1}${more}`]),
+  ]);
+  return [
+    h('div', { className: 'code-head' }, [jump, copyBtn, starButton()]),
+    h('pre', { className: 'code-preview' }, [preview(b.code)]),
+  ];
+}
+
+/** Copies the block's code; its copy button shows a tick for a moment. */
+export async function copyCode(button: HTMLElement, code: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    return;
+  }
+  button.replaceChildren(icon(ICON_COPIED));
+  button.setAttribute('aria-label', 'Copied');
+  button.classList.add('copied');
+  setTimeout(() => {
+    button.replaceChildren(icon(ICON_COPY));
+    button.setAttribute('aria-label', 'Copy code');
+    button.classList.remove('copied');
+  }, COPIED_MS);
+}
 
 export interface CodeList {
   /** The scrolling list, to be placed in the panel. */
@@ -43,115 +111,67 @@ export interface CodeListOptions {
   onSelect(question: number, target: DiagramTarget): void;
   /** How many blocks the chat has, or null while not known. */
   onCount(count: number | null): void;
+  /** The code's stars, shared with the Starred overview. */
+  stars: StarSet;
+  /** The ☆ button: open the Starred overview. */
+  onStarred(): void;
 }
 
-// The line a block is found by in the chat: its longest among the first few
-// (a lone "{" or "}" would match any block), squashed like the finder's.
-function findLine(code: string): string {
-  const lines = code
-    .split('\n')
-    .slice(0, PREVIEW_LINES)
-    .map((l) => l.replace(/\s+/g, ' ').trim());
-  return lines.reduce((a, b) => (b.length > a.length ? b : a), '');
-}
-
-// Its first lines, without blank ones at the end of what is shown.
-const preview = (code: string) => code.split('\n').slice(0, PREVIEW_LINES).join('\n').replace(/\s+$/, '');
-
-// A block's star survives reloads: kept by its question and a fingerprint
-// of its code (a block that changes is a new one).
-function starKey(b: CodeBlock): string {
-  let hash = 5381;
-  for (let i = 0; i < b.code.length; i++) hash = ((hash << 5) + hash + b.code.charCodeAt(i)) | 0;
-  return `${b.question}|${(hash >>> 0).toString(36)}`;
-}
-
-async function copy(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function row(b: CodeBlock, index: number, tools: ListTools): HTMLLIElement {
-  const lines = b.code.split('\n').length;
-  const more = lines > PREVIEW_LINES ? ` · ${lines} lines` : '';
-  const copyBtn = h(
-    'button',
-    { type: 'button', className: 'code-copy', 'aria-label': 'Copy code', title: 'Copy code' },
-    [icon(ICON_COPY)]
-  );
-  const jump = h('button', { type: 'button', className: 'code-jump', title: 'Jump to it in the chat' }, [
-    h('span', { className: 'code-lang' }, [b.language || 'Code']),
-    h('span', { className: 'code-meta' }, [`Question ${b.question + 1}${more}`]),
-  ]);
-  return h('li', { className: 'code-row', 'data-index': String(index) }, [
-    h('div', { className: 'code-head' }, [jump, copyBtn, tools.starButton()]),
-    h('pre', { className: 'code-preview' }, [preview(b.code)]),
-  ]);
-}
-
-export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList {
+export function createCodeList({ onSelect, onCount, stars, onStarred }: CodeListOptions): CodeList {
   let convId: string | null = null;
   let blocks: readonly CodeBlock[] | null = null;
   let unsubscribe: (() => void) | null = null; // following the store, once the view was opened
+  let active = -1; // the question being read: its blocks are marked
+  let picked = -1; // the one clicked, marked alone while its answer is read
+  let revealPending = false; // opened, not yet scrolled to where it opens
 
   const list = h('ol', { className: 'code-list', 'aria-label': 'Code' });
   const message = h('p', { className: 'empty', hidden: '' });
   const scroller = h('div', { className: 'scroll' }, [list, message]);
   const scrolling = listScroll(scroller, list);
-  const tools = createListTools({
-    scope: 'code',
-    what: 'code',
-    onChange: applyFilter,
-    onDown: () => keys.focusFirst(),
-  });
+  const tools = createListTools({ what: 'code', onChange: applyFilter, onDown: () => keys.focusFirst(), onStarred });
   const keys = listKeys(scroller, {
     row: '.code-row',
     focusable: '.code-jump',
-    onStar: (li) => tools.toggle(starKey(blocks![Number(li.dataset.index)])),
+    onStar: (li) => stars.toggle(codeStarKey(blocks![Number(li.dataset.index)])),
     onTop: () => tools.focusFilter(),
   });
   const element = h('div', { className: 'code' }, [tools.bar, scroller]);
+  const unwatchStars = stars.subscribe(() => applyFilter());
 
   function say(text: string) {
     message.hidden = !text;
     message.textContent = text;
   }
 
-  let active = -1; // the question being read: its blocks are marked
-  let revealPending = false; // opened, not yet scrolled to where it opens
   function reveal() {
     revealPending = false;
     scrolling.reveal();
   }
 
-  // Marks the starred blocks and shows only those that match the filter
-  // (by language or code) and, with "starred only" on, are starred.
+  // Marks the starred blocks and those in the answer being read, and shows
+  // only those that match the filter (by language or code).
   function applyFilter() {
     if (!blocks) return;
     let shown = 0;
     for (const li of list.children as HTMLCollectionOf<HTMLElement>) {
       const b = blocks[Number(li.dataset.index)];
-      const key = starKey(b);
-      tools.patchStar(li.querySelector('.star')!, key, `${b.language || 'code'} block`);
-      markCurrent(li, b.question === active);
-      const q = tools.query;
-      const matches = !q || b.language.toLowerCase().includes(q) || b.code.toLowerCase().includes(q);
-      li.hidden = !matches || (tools.only && !tools.has(key));
+      patchStar(li.querySelector('.star')!, stars, codeStarKey(b), `${b.language || 'code'} block`);
+      markCurrent(li, b.question === active && (picked === -1 || picked === Number(li.dataset.index)));
+      li.hidden = !codeMatches(b, tools.query);
       if (!li.hidden) shown++;
     }
     tools.setShown(shown, blocks.length);
-    say(!blocks.length ? TEXT.none : shown ? '' : tools.query ? TEXT.noMatch : TEXT.noneStarred);
+    say(!blocks.length ? TEXT.none : shown ? '' : TEXT.noMatch);
   }
 
   function draw(next: readonly CodeBlock[] | null) {
     // The same blocks again (the store keeps an unchanged list as is).
     if (next && next === blocks) return;
     blocks = next;
-    list.replaceChildren(...(next ?? []).map((b, i) => row(b, i, tools)));
+    list.replaceChildren(
+      ...(next ?? []).map((b, i) => h('li', { className: 'code-row', 'data-index': String(i) }, codeRow(b)))
+    );
     say(!next ? TEXT.failed : next.length ? '' : TEXT.none);
     applyFilter();
     if (revealPending && next) reveal();
@@ -175,39 +195,21 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     if (convId === id && !blocks) draw(null);
   }
 
-  // Which block of the answer it is, among those found by the same line.
-  function target(index: number): DiagramTarget {
-    const b = blocks![index];
-    const line = findLine(b.code);
-    const nth = blocks!.slice(0, index).filter((o) => o.question === b.question && findLine(o.code) === line).length;
-    return { kind: 'code', title: line, nth };
-  }
-
   list.addEventListener('click', (e) => {
     const el = e.target as Element;
     const star = el.closest<HTMLElement>('.star');
-    if (star?.dataset.star) return tools.toggle(star.dataset.star);
+    if (star?.dataset.star) return stars.toggle(star.dataset.star);
     const li = el.closest<HTMLElement>('.code-row');
     const index = Number(li?.dataset.index);
     if (!li || !blocks?.[index]) return;
-    const copyBtn = el.closest<HTMLButtonElement>('.code-copy');
+    const copyBtn = el.closest<HTMLElement>('.code-copy');
+    if (copyBtn) return void copyCode(copyBtn, blocks[index].code);
     // The row keeps the focus, so S and the arrows go on from it. The
     // jump makes its question the one being read, which marks it.
-    if (!copyBtn) {
-      keys.focusRow(li);
-      return onSelect(blocks[index].question, target(index));
-    }
-    void copy(blocks[index].code).then((ok) => {
-      if (!ok) return;
-      copyBtn.replaceChildren(icon(ICON_COPIED));
-      copyBtn.setAttribute('aria-label', 'Copied');
-      copyBtn.classList.add('copied');
-      setTimeout(() => {
-        copyBtn.replaceChildren(icon(ICON_COPY));
-        copyBtn.setAttribute('aria-label', 'Copy code');
-        copyBtn.classList.remove('copied');
-      }, COPIED_MS);
-    });
+    keys.focusRow(li);
+    picked = index;
+    applyFilter();
+    onSelect(blocks[index].question, codeTarget(blocks, index));
   });
 
   return {
@@ -216,7 +218,8 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     setConversation(id) {
       convId = id;
       active = -1;
-      tools.setConversation(id);
+      picked = -1;
+      tools.clear();
       unsubscribe?.();
       unsubscribe = null;
       blocks = null;
@@ -228,12 +231,16 @@ export function createCodeList({ onSelect, onCount }: CodeListOptions): CodeList
     setActive(question) {
       if (question === active) return;
       active = question;
+      // Reading on: the answer's blocks again. Not when the jump to the
+      // picked one just landed in its own answer.
+      if (picked !== -1 && blocks?.[picked]?.question !== question) picked = -1;
       applyFilter();
       if (!element.hidden) scrolling.follow();
     },
     destroy() {
       unsubscribe?.();
       unsubscribe = null;
+      unwatchStars();
       scrolling.stop();
     },
   };

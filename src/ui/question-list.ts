@@ -1,11 +1,14 @@
-// The list of questions inside the panel: filter field, starred-only toggle,
-// the list itself, and keyboard navigation. Every row is a button with
-// data-index = the question's index in the session's list.
+// The list of questions inside the panel: filter field, the ☆ button (it
+// opens the Starred overview), the list itself, and keyboard navigation.
+// Every row is a button with data-index = the question's index in the
+// session's list.
 import { h, icon } from '../core/dom';
-import { loadStars, saveStars } from '../data/sources';
 import type { ListItem } from '../core/types';
+import { ICON_STAR } from './list-tools';
+import type { StarSet } from './star-set';
 
-const ICON_STAR = 'M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z';
+/** A question's star survives reloads and edits elsewhere: kept by its matching key. */
+export const questionStarKey = (item: ListItem, index: number) => item.key || `#${index}`;
 // Transitions are opacity only: nothing shifts, the layout is final from the
 // first frame. Switching chats fades the old list out (keeping its rows
 // until it is invisible) and fades the new chat's list in once known.
@@ -39,7 +42,7 @@ export interface QuestionList {
    * has not loaded the message. Clicking the row again folds it.
    */
   expand(index: number): void;
-  /** Loads this conversation's stars and clears the filter. */
+  /** Another conversation: clears the filter. */
   setConversation(convId: string | null): void;
   /** Puts the "where you left off" bookmark on the question with this key, or takes it away. */
   markPlace(key: string | null): void;
@@ -52,12 +55,17 @@ export interface QuestionList {
   revealActive(): void;
 }
 
-export function createQuestionList({ onSelect }: { onSelect(index: number): void }): QuestionList {
+export interface QuestionListOptions {
+  onSelect(index: number): void;
+  /** The questions' stars, shared with the Starred overview. */
+  stars: StarSet;
+  /** The ☆ button: open the Starred overview. */
+  onStarred(): void;
+}
+
+export function createQuestionList({ onSelect, stars, onStarred }: QuestionListOptions): QuestionList {
   let items: readonly ListItem[] = [];
   let query = '';
-  let starredOnly = false;
-  let stars = new Set<string>();
-  let convId: string | null = null;
   let active = -1;
   let inView = -1; // the active item the list was last scrolled to
   let swapping = false; // the previous chat's list is fading out
@@ -82,8 +90,8 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
       type: 'button',
       className: 'icon-btn star-filter',
       'aria-pressed': 'false',
-      'aria-label': 'Show starred questions only',
-      title: 'Starred only',
+      'aria-label': 'Show everything starred',
+      title: 'Everything starred: questions, diagrams and code',
     },
     [icon(ICON_STAR)]
   );
@@ -98,14 +106,14 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
 
   // ----- what is shown ------------------------------------------------------
 
-  const starKey = (index: number) => items[index].key || `#${index}`;
+  const starKey = (index: number) => questionStarKey(items[index], index);
   const isStarred = (index: number) => stars.has(starKey(index));
   const matches = (index: number) => {
     if (!query) return true;
     const item = items[index];
     return (item.full || item.label).toLowerCase().includes(query);
   };
-  const isShown = (index: number) => matches(index) && (!starredOnly || isStarred(index));
+  const isShown = (index: number) => matches(index);
 
   function row(index: number): HTMLLIElement {
     const item = h('button', { type: 'button', className: 'item', 'data-index': String(index), tabindex: '-1' }, [
@@ -218,9 +226,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
   function renderMeta() {
     const shown = items.filter((_, i) => isShown(i)).length;
     empty.hidden = !items.length || shown > 0;
-    matchCount.textContent = query || starredOnly ? `${shown} / ${items.length}` : '';
-    filterBtn.setAttribute('aria-pressed', String(starredOnly));
-    filterBtn.classList.toggle('has-stars', stars.size > 0);
+    matchCount.textContent = query ? `${shown} / ${items.length}` : '';
   }
 
   function renderAll() {
@@ -300,13 +306,9 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     keepInView(button);
   }
 
-  function toggleStar(index: number) {
-    const key = starKey(index);
-    if (stars.has(key)) stars.delete(key);
-    else stars.add(key);
-    if (convId) saveStars(convId, [...stars]);
-    renderAll();
-  }
+  // Redrawn through the set's subscription (it may change in the overview too).
+  const toggleStar = (index: number) => stars.toggle(starKey(index));
+  stars.subscribe(() => renderAll());
 
   // After a question is picked the focus stays on it (so the arrows keep
   // working), but its focus ring is hidden until the keyboard moves again.
@@ -372,11 +374,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     }
   });
 
-  filterBtn.addEventListener('click', () => {
-    starredOnly = !starredOnly;
-    scroller.scrollTop = 0;
-    renderAll();
-  });
+  filterBtn.addEventListener('click', () => onStarred());
 
   return {
     element,
@@ -403,11 +401,8 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     expand,
     markPlace,
     setConversation(id) {
-      convId = id;
       placeKey = null;
-      stars = new Set();
       query = '';
-      starredOnly = false;
       input.value = '';
       active = -1;
       inView = -1;
@@ -443,12 +438,6 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
         currentFade = out;
         out.finished.then(swap, swap);
       }
-      if (!id) return;
-      loadStars(id).then((keys) => {
-        if (convId !== id) return;
-        stars = new Set(keys);
-        renderAll();
-      });
     },
     focus() {
       // The rows were hidden while the panel was collapsed, so the Tab stop

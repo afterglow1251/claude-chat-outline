@@ -10,6 +10,8 @@ import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import { createDiagramList } from './diagram-list';
 import { createCodeList } from './code-list';
+import { createStarredList } from './starred-list';
+import { createStarSet } from './star-set';
 import * as S from '../core/selectors';
 import type { DiagramTarget, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
@@ -218,6 +220,8 @@ export function createPanel({
     questionCount: { text: '', label: '0 questions' },
     diagramCount: null as number | null,
     codeCount: null as number | null,
+    starred: false, // the Starred overview is open (over the view)
+    starredCount: 0,
   };
   const cleanups: (() => void)[] = [];
   const listen = <E extends Event>(
@@ -295,9 +299,22 @@ export function createPanel({
     statusText,
     cancelBtn,
   ]);
-  const questions = createQuestionList({ onSelect });
+  // The chat's stars, one set per kind, shared by each view and the
+  // Starred overview (which any view's ☆ button opens).
+  const stars = {
+    questions: createStarSet('questions'),
+    diagrams: createStarSet('diagrams'),
+    code: createStarSet('code'),
+  };
+  const toggleStarred = () => {
+    state.starred = !state.starred;
+    showBody();
+  };
+  const questions = createQuestionList({ onSelect, stars: stars.questions, onStarred: toggleStarred });
   const diagrams = createDiagramList({
     onSelect: onSelectDiagram,
+    stars: stars.diagrams,
+    onStarred: toggleStarred,
     onCount(n) {
       state.diagramCount = n;
       renderCount();
@@ -307,12 +324,26 @@ export function createPanel({
   diagrams.element.hidden = true;
   const code = createCodeList({
     onSelect: onSelectDiagram,
+    stars: stars.code,
+    onStarred: toggleStarred,
     onCount(n) {
       state.codeCount = n;
       renderCount();
     },
   });
   code.element.hidden = true;
+  const starred = createStarredList({
+    stars,
+    onSelect,
+    onSelectItem: onSelectDiagram,
+    onCount(n) {
+      state.starredCount = n;
+      renderCount();
+    },
+    onStarred: toggleStarred,
+    theme: () => (host.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'),
+  });
+  starred.element.hidden = true;
   const titleLink = h(
     'a',
     {
@@ -352,6 +383,7 @@ export function createPanel({
       questions.element,
       diagrams.element,
       code.element,
+      starred.element,
     ]),
   ]);
   const tabCount = h('span', { className: 'tab-count' });
@@ -406,7 +438,7 @@ export function createPanel({
     storageSet({ collapsed });
     apply();
     // While collapsed the list couldn't follow the chat: catch up.
-    if (!collapsed && state.view === 'questions') questions.revealActive();
+    if (!collapsed && state.view === 'questions' && !state.starred) questions.revealActive();
     if (!focusAfter) return;
     if (collapsed) {
       const back = state.returnFocus;
@@ -414,7 +446,7 @@ export function createPanel({
       if (back instanceof HTMLElement && back !== host && back.isConnected) back.focus();
       else tab.focus();
     } else {
-      const list = { questions, diagrams, code }[state.view];
+      const list = state.starred ? starred : { questions, diagrams, code }[state.view];
       if (!list.focus()) collapseBtn.focus();
     }
   }
@@ -425,16 +457,25 @@ export function createPanel({
     if (persist) storageSet({ width: state.width });
   }
 
-  // Questions, diagrams or code in the panel's body. Diagrams and code are
-  // checked again with claude.ai each time their view is opened.
+  // Questions, diagrams or code in the panel's body, or the Starred
+  // overview over them. Diagrams and code are checked again with claude.ai
+  // each time their view is opened.
   function setView(view: ViewName) {
     state.view = view;
+    state.starred = false;
+    for (const b of viewBtns) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+    showBody();
+  }
+
+  function showBody() {
+    const view = state.starred ? null : state.view;
     questions.element.hidden = view !== 'questions';
     diagrams.element.hidden = view !== 'diagrams';
     code.element.hidden = view !== 'code';
-    for (const b of viewBtns) b.setAttribute('aria-pressed', String(b.dataset.view === view));
-    titleLink.textContent = viewOf(view).title;
-    if (view === 'diagrams') diagrams.show();
+    starred.element.hidden = !state.starred;
+    titleLink.textContent = state.starred ? 'Starred' : viewOf(state.view).title;
+    if (state.starred) starred.show();
+    else if (view === 'diagrams') diagrams.show();
     else if (view === 'code') code.show();
     else questions.revealActive();
     renderCount();
@@ -493,7 +534,7 @@ export function createPanel({
     // A tap with no hover before it (a touch screen): the first one opens it.
     if (!views.classList.contains('open')) return setStrip(true);
     const view = btn.dataset.view as ViewName;
-    if (view !== state.view) setView(view);
+    if (view !== state.view || state.starred) setView(view);
     // Focused before (the keyboard, then the mouse): let go of it too.
     if (e.detail > 0) btn.blur();
   });
@@ -501,7 +542,11 @@ export function createPanel({
   // ----- rendering --------------------------------------------------------
 
   function renderCount() {
-    if (state.view === 'questions') {
+    if (state.starred) {
+      const n = state.starredCount;
+      count.textContent = String(n);
+      count.setAttribute('aria-label', `${n} starred`);
+    } else if (state.view === 'questions') {
       count.textContent = state.questionCount.text;
       count.setAttribute('aria-label', state.questionCount.label);
     } else {
@@ -521,14 +566,14 @@ export function createPanel({
     else if (state.notice) text = state.notice;
     else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
     // All about the questions: diagrams and code come from the API, complete.
-    if (state.view !== 'questions') text = '';
+    if (state.view !== 'questions' || state.starred) text = '';
     status.hidden = !text;
     status.dataset.kind = !state.loading && state.status === 'selectors-broken' ? 'error' : '';
     status.classList.toggle('loading', !!state.loading);
     if (statusText.textContent !== text) statusText.textContent = text;
     cancelBtn.hidden = !state.loading;
     // Nothing to load once the list is complete (always so with the API).
-    loadBtn.hidden = state.view !== 'questions' || (!state.loading && !state.incomplete);
+    loadBtn.hidden = state.view !== 'questions' || state.starred || (!state.loading && !state.incomplete);
     loadBtn.disabled = !!state.loading;
   }
 
@@ -539,6 +584,7 @@ export function createPanel({
     // Nothing known yet for this chat: an empty list and no count.
     const pending = result.status === 'no-feed' && !result.items.length;
     questions.render(result.items, result.settled);
+    starred.setQuestions(result.items);
     const n = result.items.length;
     const more = state.incomplete ? '+' : '';
     tabCount.textContent = pending ? '' : `${n}${more}`;
@@ -702,18 +748,23 @@ export function createPanel({
       questions.setActive(index);
       diagrams.setActive(index);
       code.setActive(index);
+      starred.setActive(index);
     },
     highlight: (target, clip) => highlighter.show(target, clip),
+    clearHighlight: () => highlighter.clear(),
     setLoadState,
     unreachable: (index) => questions.expand(index),
     seeking: (on, clip = null) => (on ? seekingPill.show(clip) : seekingPill.hide()),
     offerResume: (offer, clip = null) => (offer ? resumePill.show(offer, clip) : resumePill.hide()),
     markPlace: (key) => questions.markPlace(key),
     setConversation(convId) {
+      for (const set of Object.values(stars)) set.setConversation(convId);
       questions.setConversation(convId);
       diagrams.setConversation(convId);
       code.setConversation(convId);
-      if (state.view === 'diagrams') diagrams.show();
+      starred.setConversation(convId);
+      if (state.starred) starred.show();
+      else if (state.view === 'diagrams') diagrams.show();
       else if (state.view === 'code') code.show();
     },
     setVisible(visible) {
@@ -741,6 +792,7 @@ export function createPanel({
       cleanups.forEach((fn) => fn());
       diagrams.destroy();
       code.destroy();
+      starred.destroy();
       themeObserver.disconnect();
       state.visible = false;
       applyPush();
