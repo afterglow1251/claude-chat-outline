@@ -502,6 +502,7 @@ li:has(:focus-visible) .star,
 /* Solid, and slides in: no fade (any colour change while it appears reads as flicker). */
 .resume {
   position: fixed;
+  pointer-events: auto; /* the layer it is drawn in lets clicks through */
   display: flex;
   align-items: center;
   max-width: min(520px, calc(100vw - 32px));
