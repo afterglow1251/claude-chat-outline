@@ -537,12 +537,10 @@ li:has(:focus-visible) .star,
 
 /* ----- stars on diagrams and code (see stars.ts) ------------------------- */
 
-/* The "starred only" button, right-aligned, where the questions' one is. */
-.star-bar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px;
-  border-bottom: 1px solid var(--co-border);
+/* The diagram or code block jumped to last, marked like the question being read. */
+.diagram-row[aria-current='true'],
+.code-row[aria-current='true'] {
+  background: var(--co-active-bg);
 }
 
 .diagram-line {
