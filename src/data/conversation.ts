@@ -71,7 +71,8 @@ export function parseConversation(data: unknown): ApiQuestion[] | null {
 }
 
 // ---------------------------------------------------------------------------
-// Diagrams: tool calls in Claude's answers that draw something.
+// Diagrams: tool calls in Claude's answers that draw something. Other
+// tools (code, search, reading the visualizer's own guide) are not listed.
 // ---------------------------------------------------------------------------
 
 const ARTIFACT_KINDS: Record<string, DiagramKind> = {
@@ -86,6 +87,7 @@ const UNTITLED: Record<DiagramKind, string> = {
   mermaid: 'Mermaid chart',
   html: 'HTML page',
   react: 'React component',
+  widget: 'Visual',
 };
 
 type Input = Record<string, unknown>;
@@ -115,20 +117,14 @@ function file(input: Input): Omit<Diagram, 'question'> | null {
   return { kind, title: path.split('/').pop() || UNTITLED[kind], source };
 }
 
-// Any other tool that drew an SVG inline (possibly wrapped in some HTML):
-// its first complete <svg> element. Not tools that edit files or run code,
-// whose SVG is file content or a script, not something shown in the chat.
-const NOT_DRAWING = /bash|repl|str_replace|edit|file/i;
-function drawing(input: Input, name: string): Omit<Diagram, 'question'> | null {
-  if (NOT_DRAWING.test(name) || 'path' in input) return null;
-  for (const value of Object.values(input)) {
-    const text = str(value);
-    const start = text.search(/<svg[\s>]/);
-    const end = start < 0 ? -1 : text.indexOf('</svg>', start);
-    if (end < 0) continue;
-    return { kind: 'svg', title: str(input.title) || UNTITLED.svg, source: text.slice(start, end + 6) };
-  }
-  return null;
+// Claude's visualizer (`visualize:show_widget`): a fragment of HTML or SVG
+// that claude.ai shows inline, styled by claude.ai. Its title is snake_case
+// ("coffee_cherry_to_cup_flow"); claude.ai shows it as a sentence.
+function widget(input: Input): Omit<Diagram, 'question'> | null {
+  const source = str(input.widget_code);
+  if (!source.trim()) return null;
+  const title = str(input.title).replace(/[_-]+/g, ' ').trim();
+  return { kind: 'widget', title: title ? title[0].toUpperCase() + title.slice(1) : UNTITLED.widget, source };
 }
 
 /**
@@ -150,12 +146,15 @@ export function parseDiagrams(data: unknown): Diagram[] | null {
       const input = c.input as Input;
       const id = c.name === 'artifacts' ? str(input.id) : '';
       const prev = id ? artifacts.get(id) : undefined;
+      const name = str(c.name);
       const found =
-        c.name === 'artifacts'
+        name === 'artifacts'
           ? artifact(input, prev)
-          : c.name === 'create_file'
+          : name === 'create_file'
             ? file(input)
-            : drawing(input, str(c.name));
+            : 'widget_code' in input
+              ? widget(input)
+              : null;
       if (!found) continue;
       const diagram = { ...found, question: Math.max(question, 0) };
       if (prev) diagrams.splice(diagrams.indexOf(prev), 1);

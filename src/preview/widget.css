@@ -1,0 +1,285 @@
+/* What claude.ai provides to the visualizer's widgets, recreated for the
+   panel's previews: its colour and font variables, the SVG text and shape
+   classes (t, ts, th, box, arr, leader) and the colour ramps (c-teal,
+   c-coral, ...). Widgets are written against these, so without them a
+   diagram is black boxes. Close to claude.ai's look, not a copy of it. */
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f5f4ee;
+  --color-background-tertiary: #faf9f5;
+  --color-background-info: #e6f1fb;
+  --color-background-success: #eaf3de;
+  --color-background-warning: #faeeda;
+  --color-background-danger: #fcebeb;
+  --color-text-primary: #141413;
+  --color-text-secondary: #5e5d59;
+  --color-text-tertiary: #87867f;
+  --color-text-info: #185fa5;
+  --color-text-success: #3b6d11;
+  --color-text-warning: #854f0b;
+  --color-text-danger: #a32d2d;
+  --color-border-primary: rgba(31, 30, 29, 0.4);
+  --color-border-secondary: rgba(31, 30, 29, 0.25);
+  --color-border-tertiary: rgba(31, 30, 29, 0.15);
+  --color-border-info: #185fa5;
+  --color-border-success: #3b6d11;
+  --color-border-warning: #854f0b;
+  --color-border-danger: #a32d2d;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --color-background-primary: #30302e;
+  --color-background-secondary: #262624;
+  --color-background-tertiary: #1f1e1d;
+  --color-background-info: #0c447c;
+  --color-background-success: #27500a;
+  --color-background-warning: #633806;
+  --color-background-danger: #791f1f;
+  --color-text-primary: #faf9f5;
+  --color-text-secondary: #c2c0b6;
+  --color-text-tertiary: #9c9a92;
+  --color-text-info: #85b7eb;
+  --color-text-success: #97c459;
+  --color-text-warning: #ef9f27;
+  --color-text-danger: #f09595;
+  --color-border-primary: rgba(222, 220, 209, 0.4);
+  --color-border-secondary: rgba(222, 220, 209, 0.25);
+  --color-border-tertiary: rgba(222, 220, 209, 0.15);
+  --color-border-info: #85b7eb;
+  --color-border-success: #97c459;
+  --color-border-warning: #ef9f27;
+  --color-border-danger: #f09595;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font: 16px/1.5 var(--font-sans);
+  color: var(--color-text-primary);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* ----- SVG text and shapes ------------------------------------------------ */
+
+svg text {
+  font-family: var(--font-sans);
+  fill: var(--color-text-primary);
+}
+
+.t {
+  font-size: 14px;
+  fill: var(--color-text-primary);
+}
+
+.ts {
+  font-size: 12px;
+  fill: var(--color-text-secondary);
+}
+
+.th {
+  font-size: 14px;
+  font-weight: 500;
+  fill: var(--color-text-primary);
+}
+
+.box {
+  fill: var(--color-background-secondary);
+  stroke: var(--color-border-tertiary);
+}
+
+.arr {
+  fill: none;
+  stroke: var(--color-text-secondary);
+  stroke-width: 1.5;
+}
+
+.leader {
+  fill: none;
+  stroke: var(--color-text-tertiary);
+  stroke-width: 0.5;
+  stroke-dasharray: 4 3;
+}
+
+/* ----- colour ramps: on a group (its shapes and text) or on one shape ----- */
+
+.c-purple {
+  --fill: #eeedfe;
+  --stroke: #534ab7;
+  --title: #3c3489;
+  --sub: #534ab7;
+}
+.c-teal {
+  --fill: #e1f5ee;
+  --stroke: #0f6e56;
+  --title: #085041;
+  --sub: #0f6e56;
+}
+.c-coral {
+  --fill: #faece7;
+  --stroke: #993c1d;
+  --title: #712b13;
+  --sub: #993c1d;
+}
+.c-pink {
+  --fill: #fbeaf0;
+  --stroke: #993556;
+  --title: #72243e;
+  --sub: #993556;
+}
+.c-gray {
+  --fill: #f1efe8;
+  --stroke: #5f5e5a;
+  --title: #444441;
+  --sub: #5f5e5a;
+}
+.c-blue {
+  --fill: #e6f1fb;
+  --stroke: #185fa5;
+  --title: #0c447c;
+  --sub: #185fa5;
+}
+.c-green {
+  --fill: #eaf3de;
+  --stroke: #3b6d11;
+  --title: #27500a;
+  --sub: #3b6d11;
+}
+.c-amber {
+  --fill: #faeeda;
+  --stroke: #854f0b;
+  --title: #633806;
+  --sub: #854f0b;
+}
+.c-red {
+  --fill: #fcebeb;
+  --stroke: #a32d2d;
+  --title: #791f1f;
+  --sub: #a32d2d;
+}
+
+:root[data-theme='dark'] .c-purple {
+  --fill: #3c3489;
+  --stroke: #afa9ec;
+  --title: #cecbf6;
+  --sub: #afa9ec;
+}
+:root[data-theme='dark'] .c-teal {
+  --fill: #085041;
+  --stroke: #5dcaa5;
+  --title: #9fe1cb;
+  --sub: #5dcaa5;
+}
+:root[data-theme='dark'] .c-coral {
+  --fill: #712b13;
+  --stroke: #f0997b;
+  --title: #f5c4b3;
+  --sub: #f0997b;
+}
+:root[data-theme='dark'] .c-pink {
+  --fill: #72243e;
+  --stroke: #ed93b1;
+  --title: #f4c0d1;
+  --sub: #ed93b1;
+}
+:root[data-theme='dark'] .c-gray {
+  --fill: #444441;
+  --stroke: #b4b2a9;
+  --title: #d3d1c7;
+  --sub: #b4b2a9;
+}
+:root[data-theme='dark'] .c-blue {
+  --fill: #0c447c;
+  --stroke: #85b7eb;
+  --title: #b5d4f4;
+  --sub: #85b7eb;
+}
+:root[data-theme='dark'] .c-green {
+  --fill: #27500a;
+  --stroke: #97c459;
+  --title: #c0dd97;
+  --sub: #97c459;
+}
+:root[data-theme='dark'] .c-amber {
+  --fill: #633806;
+  --stroke: #ef9f27;
+  --title: #fac775;
+  --sub: #ef9f27;
+}
+:root[data-theme='dark'] .c-red {
+  --fill: #791f1f;
+  --stroke: #f09595;
+  --title: #f7c1c1;
+  --sub: #f09595;
+}
+
+[class*='c-'] :is(rect, circle, ellipse, polygon),
+:is(rect, circle, ellipse, polygon)[class*='c-'] {
+  fill: var(--fill);
+  stroke: var(--stroke);
+}
+
+[class*='c-'] :is(.t, .th),
+text[class*='c-'] {
+  fill: var(--title);
+}
+
+[class*='c-'] .ts {
+  fill: var(--sub);
+}
+
+.node {
+  cursor: pointer;
+}
+
+/* ----- HTML widgets ------------------------------------------------------- */
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--color-text-primary);
+}
+
+button {
+  padding: 6px 14px;
+  background: var(--color-background-primary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+}
+
+input[type='range'] {
+  accent-color: var(--color-text-secondary);
+}
+
+input:not([type='range'], [type='checkbox'], [type='radio']),
+select,
+textarea {
+  padding: 6px 10px;
+  background: var(--color-background-primary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: var(--border-radius-md);
+}

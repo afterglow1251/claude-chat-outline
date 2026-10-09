@@ -273,6 +273,7 @@ export function createPanel({
       state.diagramCount = n;
       renderCount();
     },
+    theme: () => (host.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'),
   });
   diagrams.element.hidden = true;
   const titleLink = h(
@@ -634,6 +635,7 @@ export function createPanel({
       seekingPill.hide();
       resumePill.hide();
       cleanups.forEach((fn) => fn());
+      diagrams.destroy();
       themeObserver.disconnect();
       state.visible = false;
       applyPush();

@@ -13,7 +13,10 @@ const options = {
     // scripts in manifest.json, so they are separate bundles.
     content: `${root}src/main.ts`,
     'page-bridge': `${root}src/data/page-bridge.ts`,
+    // The sandboxed page that draws a diagram's preview (src/preview/).
+    preview: `${root}src/preview/preview.ts`,
   },
+  loader: { '.css': 'text' },
   outdir: out,
   bundle: true,
   format: 'iife',
@@ -30,6 +33,7 @@ async function copyStatic() {
   manifest.version = pkg.version; // package.json is the one place the version lives
   await writeFile(`${out}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
   await cp(`${root}src/ui/panel.css`, `${out}/panel.css`);
+  await cp(`${root}src/preview/preview.html`, `${out}/preview.html`);
   await cp(`${root}src/icons`, `${out}/icons`, { recursive: true });
 }
 

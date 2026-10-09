@@ -453,30 +453,32 @@ li:has(:focus-visible) .star,
   padding: 0;
 }
 
+/* A preview (if any) on top, the name under it. The whole row jumps. */
+.diagram-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.diagram-row:hover {
+  background: var(--co-hover);
+}
+
 .diagram {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 6px;
-  border-radius: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
   text-align: left;
 }
 
-.diagram:hover {
-  background: var(--co-hover);
-}
-
-/* An SVG: its thumbnail on top, the name under it. */
-.diagram.has-thumb {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-/* Always light: Claude draws for a light page, often in plain black. */
+/* Always light: Claude draws SVG artifacts for a light page, often in plain black. */
 .thumb-box {
-  display: block;
   height: 120px;
   padding: 8px;
   background: #ffffff;
@@ -489,6 +491,27 @@ li:has(:focus-visible) .star,
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* A live preview, laid out 680px wide (claude.ai's chat column) and scaled
+   to the panel; --h is its height at that width. */
+.live-box {
+  position: relative;
+  height: min(260px, calc(var(--h, 400px) * var(--co-scale, 0.4)));
+  overflow: hidden;
+  background: var(--co-bg);
+  border: 1px solid var(--co-border);
+  border-radius: 6px;
+}
+
+.live-box iframe {
+  display: block;
+  width: 680px;
+  height: var(--h, 400px);
+  border: 0;
+  transform: scale(var(--co-scale, 0.4));
+  transform-origin: 0 0;
+  pointer-events: none;
 }
 
 .diagram-icon {
@@ -507,10 +530,6 @@ li:has(:focus-visible) .star,
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.has-thumb .diagram-text {
-  padding: 0 4px;
 }
 
 .diagram-title {

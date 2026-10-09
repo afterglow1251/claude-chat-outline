@@ -1,23 +1,36 @@
-// The panel's Diagrams view: what Claude drew in this chat (SVG, Mermaid,
-// HTML and React artifacts). Read from claude.ai's API each time the view
-// is opened, never in the background, so the outline costs nothing more
-// while you are not looking at it. An SVG gets a thumbnail, drawn as an
-// <img> so nothing in it can run or load; the others are listed by name.
-// Clicking one jumps to the question whose answer has it.
+// The panel's Diagrams view: what Claude drew in this chat (its inline
+// visuals, and SVG, Mermaid, HTML and React artifacts). Read from claude.ai's
+// API each time the view is opened, never in the background. Clicking one
+// jumps to the question whose answer has it.
+//
+// Previews: an SVG artifact is an <img>, so nothing in it runs. Visuals,
+// HTML and Mermaid are drawn live in a sandboxed extension page (see
+// src/preview/), as claude.ai draws them in its own frames, which the
+// extension can't look into. Only rows on screen in the open view have one,
+// so a chat full of animations costs nothing while you don't look at them.
+// React artifacts are listed by name.
 import { h, icon } from '../core/dom';
 import type { Diagram, DiagramKind } from '../core/types';
+import type { PreviewMessage } from '../preview/preview';
 
-const KIND_LABEL: Record<DiagramKind, string> = { svg: 'SVG', mermaid: 'Mermaid', html: 'HTML', react: 'React' };
-const KIND_ICON: Record<DiagramKind, string> = {
-  svg: 'M4 4h16v16H4zM4 16l5-5 4 4 2-2 5 5',
-  mermaid: 'M4 4h6v5H4zM14 15h6v5h-6zM7 9v3.5h10V15',
-  html: 'M8 7l-5 5 5 5M16 7l5 5-5 5',
-  react: 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z',
+const KIND_LABEL: Record<DiagramKind, string> = {
+  svg: 'SVG',
+  mermaid: 'Mermaid',
+  html: 'HTML',
+  react: 'React',
+  widget: 'Visual',
 };
+const REACT_ICON = 'M10 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5-9-2-9-4.5z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// Live previews are laid out at the width of claude.ai's chat column, which
+// visuals are drawn for, then scaled down to the panel.
+const RENDER_WIDTH = 680;
+const RENDER_MAX_HEIGHT = 2000;
+const HEIGHT_GUESS = 400; // until the preview reports its own
+const MOUNT_MARGIN = '200px 0px'; // started a little before they scroll in
+
 const TEXT = {
-  loading: 'Looking for diagrams…',
   none: 'No diagrams in this chat.',
   failed: "Couldn't read this chat's diagrams.",
 };
@@ -31,6 +44,7 @@ export interface DiagramList {
   setConversation(convId: string | null): void;
   /** Focuses the first diagram; false if there is none. */
   focus(): boolean;
+  destroy(): void;
 }
 
 export interface DiagramListOptions {
@@ -39,10 +53,9 @@ export interface DiagramListOptions {
   onSelect(question: number): void;
   /** How many diagrams the chat has, or null while not known. */
   onCount(count: number | null): void;
+  /** The panel's theme, which live previews are drawn in. */
+  theme(): 'light' | 'dark';
 }
-
-const kindIcon = (kind: DiagramKind): HTMLElement =>
-  h('span', { className: 'diagram-icon', 'aria-hidden': 'true' }, [icon(KIND_ICON[kind])]);
 
 const same = (a: readonly Diagram[], b: readonly Diagram[]) =>
   a.length === b.length &&
@@ -50,19 +63,30 @@ const same = (a: readonly Diagram[], b: readonly Diagram[]) =>
     (d, i) => d.kind === b[i].kind && d.title === b[i].title && d.question === b[i].question && d.source === b[i].source
   );
 
-export function createDiagramList({ load, onSelect, onCount }: DiagramListOptions): DiagramList {
+const setHeight = (box: HTMLElement, height: number) => box.style.setProperty('--h', `${height}px`);
+
+const isLive = (kind: DiagramKind): kind is PreviewMessage['kind'] =>
+  kind === 'widget' || kind === 'html' || kind === 'mermaid';
+
+export function createDiagramList({ load, onSelect, onCount, theme }: DiagramListOptions): DiagramList {
   let convId: string | null = null;
   let diagrams: Diagram[] | null = null;
   let request = 0; // the latest load; older answers are dropped
   let urls: string[] = []; // thumbnails' blob URLs, released on every redraw
+  const live = new Map<Element, Diagram>(); // preview box -> its diagram
+  const frames = new Map<MessageEventSource, HTMLElement>(); // mounted preview -> its box
+  const heights = new WeakMap<Diagram, number>(); // as reported, so a remount doesn't jump
 
   const list = h('ol', { className: 'diagram-list', 'aria-label': 'Diagrams' });
   const message = h('p', { className: 'empty', hidden: '' });
-  const element = h('div', { className: 'diagrams' }, [h('div', { className: 'scroll' }, [list, message])]);
+  const scroller = h('div', { className: 'scroll' }, [list, message]);
+  const element = h('div', { className: 'diagrams' }, [scroller]);
+
+  // ----- previews -----------------------------------------------------------
 
   // The SVG as an image file: no script in it runs and nothing it links to
   // loads. A blob: URL, which claude.ai's page allows for images (it shows
-  // your attachments that way). Falls back to the icon if it doesn't draw.
+  // your attachments that way). Dropped if it doesn't draw.
   function thumbnail(source: string): HTMLElement {
     // The <svg> tag itself, not whatever comes first (an <?xml?> line, a comment).
     const open = /<svg\b[^>]*>/.exec(source)?.[0] ?? '';
@@ -70,36 +94,95 @@ export function createDiagramList({ load, onSelect, onCount }: DiagramListOption
     const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
     urls.push(url);
     const img = h('img', { className: 'thumb', src: url, alt: '', decoding: 'async', loading: 'lazy' });
-    const box = h('span', { className: 'thumb-box', 'aria-hidden': 'true' }, [img]);
-    img.addEventListener('error', () => {
-      box.closest('.diagram')?.classList.remove('has-thumb');
-      box.replaceWith(kindIcon('svg'));
-    });
+    const box = h('div', { className: 'thumb-box', 'aria-hidden': 'true' }, [img]);
+    img.addEventListener('error', () => box.remove());
     return box;
   }
 
+  // The panel's width changes the scale of every preview at once.
+  function updateScale() {
+    const box = list.querySelector<HTMLElement>('.live-box');
+    if (box && box.clientWidth) list.style.setProperty('--co-scale', String(box.clientWidth / RENDER_WIDTH));
+  }
+
+  function mount(box: HTMLElement) {
+    const diagram = live.get(box);
+    if (!diagram || box.firstChild || !isLive(diagram.kind)) return;
+    let src: string;
+    try {
+      src = chrome.runtime.getURL('preview.html');
+    } catch {
+      return; // the extension was reloaded under this page
+    }
+    const frame = h('iframe', { src, sandbox: 'allow-scripts', tabindex: '-1', 'aria-hidden': 'true' });
+    const msg: PreviewMessage = { kind: diagram.kind, source: diagram.source, theme: theme() };
+    frame.addEventListener('load', () => frame.contentWindow?.postMessage(msg, '*'), { once: true });
+    box.append(frame);
+    if (frame.contentWindow) frames.set(frame.contentWindow, box);
+    updateScale();
+  }
+
+  function unmount(box: HTMLElement) {
+    const frame = box.querySelector('iframe');
+    if (!frame) return;
+    if (frame.contentWindow) frames.delete(frame.contentWindow);
+    frame.remove();
+  }
+
+  // Started and stopped as rows come and go, and all stopped while the
+  // view (or the panel) is hidden: nothing is on screen then.
+  const visibility = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) (e.isIntersecting ? mount : unmount)(e.target as HTMLElement);
+    },
+    { root: scroller, rootMargin: MOUNT_MARGIN }
+  );
+  const resize = new ResizeObserver(updateScale);
+  resize.observe(list);
+
+  // A preview's height, the one thing it may tell the panel.
+  function onMessage(e: MessageEvent) {
+    const box = e.source ? frames.get(e.source) : undefined;
+    if (!box || !e.data || typeof e.data !== 'object') return;
+    const height = Number((e.data as { coPreviewHeight?: unknown }).coPreviewHeight);
+    const diagram = live.get(box);
+    if (!diagram || !Number.isFinite(height) || height <= 0) return;
+    const clamped = Math.min(Math.round(height), RENDER_MAX_HEIGHT);
+    heights.set(diagram, clamped);
+    setHeight(box, clamped);
+  }
+  window.addEventListener('message', onMessage);
+
+  // ----- rows ---------------------------------------------------------------
+
   function row(d: Diagram): HTMLLIElement {
-    const thumb = d.kind === 'svg';
-    const button = h(
-      'button',
-      {
-        type: 'button',
-        className: thumb ? 'diagram has-thumb' : 'diagram',
-        'data-question': String(d.question),
-        title: `${d.title}: jump to question ${d.question + 1}`,
-      },
-      [
-        thumb ? thumbnail(d.source) : kindIcon(d.kind),
-        h('span', { className: 'diagram-text' }, [
-          h('span', { className: 'diagram-title' }, [d.title]),
-          h('span', { className: 'diagram-meta' }, [`${KIND_LABEL[d.kind]} · question ${d.question + 1}`]),
-        ]),
-      ]
-    );
-    return h('li', {}, [button]);
+    let preview: HTMLElement | null = null;
+    if (d.kind === 'svg') preview = thumbnail(d.source);
+    else if (isLive(d.kind)) {
+      preview = h('div', { className: 'live-box', 'aria-hidden': 'true' });
+      setHeight(preview, heights.get(d) ?? HEIGHT_GUESS);
+      live.set(preview, d);
+      visibility.observe(preview);
+    }
+    const button = h('button', { type: 'button', className: 'diagram', title: `${d.title}: jump to it` }, [
+      ...(d.kind === 'react'
+        ? [h('span', { className: 'diagram-icon', 'aria-hidden': 'true' }, [icon(REACT_ICON)])]
+        : []),
+      h('span', { className: 'diagram-text' }, [
+        h('span', { className: 'diagram-title' }, [d.title]),
+        h('span', { className: 'diagram-meta' }, [`${KIND_LABEL[d.kind]} · question ${d.question + 1}`]),
+      ]),
+    ]);
+    return h('li', { className: 'diagram-row', 'data-question': String(d.question) }, [
+      ...(preview ? [preview] : []),
+      button,
+    ]);
   }
 
   function release() {
+    visibility.disconnect();
+    for (const box of live.keys()) unmount(box as HTMLElement);
+    live.clear();
     urls.forEach((url) => URL.revokeObjectURL(url));
     urls = [];
   }
@@ -110,7 +193,7 @@ export function createDiagramList({ load, onSelect, onCount }: DiagramListOption
   }
 
   function draw(next: Diagram[] | null) {
-    // The same diagrams again: nothing to redraw, so no thumbnail flickers.
+    // The same diagrams again: nothing to redraw, so no preview restarts.
     if (next && diagrams && same(next, diagrams)) return;
     diagrams = next;
     release();
@@ -123,7 +206,6 @@ export function createDiagramList({ load, onSelect, onCount }: DiagramListOption
     if (!convId) return;
     const id = convId;
     const mine = ++request;
-    if (!diagrams) say(TEXT.loading);
     let next: Diagram[] | null = null;
     try {
       next = await load(id);
@@ -136,8 +218,8 @@ export function createDiagramList({ load, onSelect, onCount }: DiagramListOption
   }
 
   list.addEventListener('click', (e) => {
-    const button = (e.target as Element).closest<HTMLButtonElement>('.diagram');
-    if (button) onSelect(Number(button.dataset.question));
+    const li = (e.target as Element).closest<HTMLElement>('.diagram-row');
+    if (li) onSelect(Number(li.dataset.question));
   });
 
   return {
@@ -156,6 +238,11 @@ export function createDiagramList({ load, onSelect, onCount }: DiagramListOption
       const first = list.querySelector<HTMLButtonElement>('.diagram');
       first?.focus({ preventScroll: true });
       return !!first;
+    },
+    destroy() {
+      release();
+      resize.disconnect();
+      window.removeEventListener('message', onMessage);
     },
   };
 }

@@ -19,7 +19,8 @@ export interface ApiQuestion {
   pos: number;
 }
 
-export type DiagramKind = 'svg' | 'mermaid' | 'html' | 'react';
+/** `widget`: drawn inline in the chat by Claude's visualizer (HTML or SVG). */
+export type DiagramKind = 'svg' | 'mermaid' | 'html' | 'react' | 'widget';
 
 /** A diagram Claude made in its answer, from claude.ai's API. */
 export interface Diagram {
