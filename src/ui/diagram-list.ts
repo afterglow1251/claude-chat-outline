@@ -204,7 +204,11 @@ export function createDiagramList({ onSelect, onCount, theme }: DiagramListOptio
   async function show() {
     if (!convId) return;
     const id = convId;
-    unsubscribe ??= Store.subscribe(id, (conversation) => conversation.diagrams && draw(conversation.diagrams));
+    // While the view is hidden, changes wait for it to be shown again
+    // (redrawing would restart the previews for nothing).
+    unsubscribe ??= Store.subscribe(id, (conversation) => {
+      if (!element.hidden && conversation.diagrams) draw(conversation.diagrams);
+    });
     const known = Store.peek(id).diagrams;
     if (known) draw(known);
     // The answer comes through the subscription.

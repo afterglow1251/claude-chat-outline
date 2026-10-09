@@ -90,7 +90,7 @@ function chat(id: string): Chat {
   // being asked for.
   for (const [key, old] of memory) {
     if (memory.size <= MEMORY_MAX_CHATS) break;
-    if (!old.listeners.size && !old.request) memory.delete(key);
+    if (key !== id && !old.listeners.size && !old.request) memory.delete(key);
   }
   return r;
 }
@@ -125,6 +125,8 @@ function readStored(r: Chat): Promise<void> {
       r.questions = { fromApi: false, items: texts, complete: !!v.complete };
     }
     r.source = 'storage';
+    // For a reader that stopped waiting for it.
+    notify(r);
   });
   return r.stored;
 }
@@ -150,10 +152,10 @@ function writeStored(r: Chat) {
 
 // ----- updates from claude.ai ------------------------------------------------
 
-// False if the list is not believable: empty, for a chat known to have
-// questions (a brand-new chat the API has not caught up with yet).
+// False if the list is not believable: empty (a brand-new chat the API has
+// not caught up with yet). Not kept, so it never hides the page's list.
 function takeQuestions(r: Chat, items: ApiQuestion[], source: Source): boolean {
-  if (!items.length && r.questions?.items.length) return false;
+  if (!items.length) return false;
   const old = r.questions;
   if (!old || !old.fromApi || !sameQuestions(old.items, items)) r.questions = { fromApi: true, items };
   r.source = source;
@@ -164,10 +166,17 @@ function takeQuestions(r: Chat, items: ApiQuestion[], source: Source): boolean {
 
 /** Takes in every conversation claude.ai loads. Started once, for the life of the page. */
 export function watchClaude(): () => void {
-  return watchConversations(({ convId, questions }) => {
+  // Starting, the page relays the last conversation it loaded again, at
+  // once. Coming back from the back/forward cache, this store has kept what
+  // came later: that copy is older, and not taken.
+  let replay = true;
+  const stop = watchConversations(({ convId, questions }) => {
     const r = chat(convId);
+    if (replay && r.questionsAt != null) return;
     if (takeQuestions(r, questions, 'claude.ai response')) notify(r);
   });
+  replay = false;
+  return stop;
 }
 
 // ----- reading ---------------------------------------------------------------
@@ -201,15 +210,17 @@ export function refresh(convId: string, maxAge = 0): Promise<boolean> {
   const r = chat(convId);
   if (r.request) return r.request;
   if (r.fetchedAt != null && performance.now() - r.fetchedAt < maxAge) return Promise.resolve(true);
-  r.request = fetchConversationParts(convId).then((parts) => {
-    r.request = null;
-    if (!parts) return false;
-    r.fetchedAt = performance.now();
-    const believable = takeQuestions(r, parts.questions, 'api');
-    if (!r.diagrams || !sameDiagrams(r.diagrams, parts.diagrams)) r.diagrams = parts.diagrams;
-    notify(r);
-    return believable;
-  });
+  r.request = fetchConversationParts(convId)
+    .catch(() => null)
+    .then((parts) => {
+      r.request = null;
+      if (!parts) return false;
+      r.fetchedAt = performance.now();
+      const believable = takeQuestions(r, parts.questions, 'api');
+      if (!r.diagrams || !sameDiagrams(r.diagrams, parts.diagrams)) r.diagrams = parts.diagrams;
+      notify(r);
+      return believable;
+    });
   return r.request;
 }
 
