@@ -57,8 +57,8 @@ const ICONS = {
   push: 'M4 5h16v14H4zM14 5v14',
 } as const;
 
-// What the panel shows, picked from a strip in its header (see the view
-// switcher below). In the strip's order, left to right.
+// What the panel shows, picked from the three icons in its header (see the
+// view switcher below), in this order, left to right.
 type ViewName = 'questions' | 'diagrams' | 'code';
 const VIEWS: readonly { name: ViewName; title: string; icon: string; one: string; many: string }[] = [
   {
@@ -78,9 +78,6 @@ const VIEWS: readonly { name: ViewName; title: string; icon: string; one: string
   { name: 'code', title: 'Code', icon: 'M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16', one: 'block', many: 'blocks' },
 ];
 const viewOf = (name: ViewName) => VIEWS.find((v) => v.name === name)!;
-// The strip closes this long after the pointer has left it, so drifting
-// between its icons doesn't snap it shut.
-const STRIP_CLOSE_MS = 60;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -253,9 +250,8 @@ export function createPanel({
     },
     [icon(ICONS.loadAll)]
   );
-  // The view switcher, as in Sonar: at rest one icon, the current view's.
-  // Point at it (or click it) and the views spring out to its left, one
-  // after another; the current one is in the accent colour.
+  // The view switcher: the three views' icons in one pill, the current one
+  // in the accent colour.
   const viewBtns = VIEWS.map((v) =>
     h(
       'button',
@@ -484,58 +480,15 @@ export function createPanel({
 
   // ----- view switcher ------------------------------------------------------
 
-  let stripTimer: ReturnType<typeof setTimeout> | undefined;
-  cleanups.push(() => clearTimeout(stripTimer));
-  function setStrip(open: boolean) {
-    clearTimeout(stripTimer);
-    if (open === views.classList.contains('open')) return;
-    if (open) {
-      // The icon at rest stays where it is, rightmost; the other views come
-      // out to its left, in their usual order, the nearest first. The order
-      // holds while it is open, whatever is picked meanwhile.
-      const rest = viewBtns.find((b) => b.dataset.view === state.view)!;
-      const others = viewBtns.filter((b) => b !== rest);
-      others.forEach((b, k) => {
-        b.style.setProperty('order', String(k));
-        b.style.setProperty('--i', String(others.length - 1 - k));
-        b.classList.remove('rest');
-      });
-      rest.style.setProperty('order', String(others.length));
-      rest.classList.add('rest');
-    }
-    views.classList.toggle('open', open);
-  }
-  // Opens the moment the pointer moves onto it; closes once it has left the
-  // whole strip, after a blink. A real move, not an "enter": the page
-  // loading under a pointer at rest (a reload) sends one of those, and
-  // the strip must not unroll by itself.
-  let pointerIn = false;
-  listen<PointerEvent>(views, 'pointermove', (e) => {
-    pointerIn = true;
-    if (e.movementX || e.movementY) setStrip(true);
-  });
-  listen(views, 'pointerleave', () => {
-    pointerIn = false;
-    clearTimeout(stripTimer);
-    stripTimer = setTimeout(() => setStrip(false), STRIP_CLOSE_MS);
-  });
-  listen(views, 'focusin', () => setStrip(true));
-  listen<FocusEvent>(views, 'focusout', (e) => {
-    if (!pointerIn && !views.contains(e.relatedTarget as Node | null)) setStrip(false);
-  });
-  // The mouse never gives its buttons focus, whichever click it is: kept,
-  // the window taking focus back (a reload, a click in the browser's own
-  // bar) would hand it to the button again, and focus opens the strip.
-  // The keyboard still focuses them, to switch views without a mouse.
+  // The mouse never gives its buttons focus (the window taking focus back
+  // on a reload would hand it to the button again); the keyboard still
+  // focuses them, to switch views without a mouse.
   listen<MouseEvent>(views, 'mousedown', (e) => e.preventDefault());
   listen<MouseEvent>(views, 'click', (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>('.view-opt');
     if (!btn) return;
-    // A tap with no hover before it (a touch screen): the first one opens it.
-    if (!views.classList.contains('open')) return setStrip(true);
     const view = btn.dataset.view as ViewName;
     if (view !== state.view || state.starred) setView(view);
-    // Focused before (the keyboard, then the mouse): let go of it too.
     if (e.detail > 0) btn.blur();
   });
 

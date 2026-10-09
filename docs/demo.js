@@ -154,7 +154,6 @@
       click: undefined,
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
       diagrams: false, // the panel shows the Diagrams view
-      strip: false, // the view switcher is open (the pointer is on it)
       previews: 0, // the diagrams' previews: 0 shimmering to 1 drawn
       dHover: -1, // the diagram row under the cursor
       toDiagram: null, // { index, p }: the chat scrolling to diagram `index` (p: 0 to 1)
@@ -284,16 +283,14 @@
     }
 
     if (id === 'diagrams') {
-      // Point at the view icon: the views spring out of it. Pick Diagrams,
-      // watch the previews draw, jump to one.
+      // Pick Diagrams in the header, watch the previews draw, jump to one.
       s.stars = [4, 8];
       s.dark = true;
       s.chatPos = 9;
       s.active = 9;
       const open = 1.5;
       const pick = 3.9;
-      s.cursor = cursorPath(t, [[0, 'chat'], [1.0, 'views'], [1.3, 'vopt:1'], [2.7, 'vopt:1'], [3.6, 'drow:1']]);
-      s.strip = t >= 0.95 && t < 2.85;
+      s.cursor = cursorPath(t, [[0, 'chat'], [1.1, 'vopt:1'], [2.7, 'vopt:1'], [3.6, 'drow:1']]);
       s.click = clickAt(t, [open, pick]);
       s.diagrams = t >= open;
       s.previews = out(seg(t, open + 0.8, open + 1.2));
@@ -386,7 +383,7 @@
             'M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z',
             'M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16',
           ]
-            .map((d, k) => `<i class="s-vopt" style="--i:${2 - k}"><svg viewBox="0 0 24 24"><path d="${d}"/></svg></i>`)
+            .map((d) => `<i class="s-vopt"><svg viewBox="0 0 24 24"><path d="${d}"/></svg></i>`)
             .join('')}</span>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></i>
@@ -466,7 +463,6 @@
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
-    if (name === 'views') return pointOf(vopts.find((el) => el.classList.contains('on')) || vopts[0], 0.5, 0.55);
     const [kind, i] = name.split(':');
     if (kind === 'drow') return pointOf(dRows[+i].firstChild, 0.45, 0.55);
     if (kind === 'vopt') return pointOf(vopts[+i], 0.5, 0.55);
@@ -527,8 +523,7 @@
     // Questions or Diagrams in the panel. Previews shimmer, then the
     // drawing fades in over the shimmer, like the extension's.
     panel.classList.toggle('dview', s.diagrams);
-    // The view switcher: the current view's icon, or all of them while pointed at.
-    views.classList.toggle('open', !!s.strip);
+    // The view switcher: the current view's icon in accent.
     vopts.forEach((el, k) => el.classList.toggle('on', k === (s.diagrams ? 1 : 0)));
     heading.textContent = s.diagrams ? 'Diagrams' : 'Questions';
     count.textContent = s.diagrams ? DRAWN.length : N;

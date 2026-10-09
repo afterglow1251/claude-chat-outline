@@ -521,17 +521,12 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
 .s-empty { padding: 16px; color: var(--w-muted); font-size: 13px; }
 
 /* The Diagrams view: a preview over each diagram's name, as in the extension. */
-/* The view switcher, as in the extension: one icon at rest; pointed at, the
-   views spring out of it, the current one in accent. */
-.s-views { margin-left: auto; display: flex; align-items: center; gap: 2px; border-radius: 8px; transition: background-color 0.2s, padding 0.2s; }
+/* The view switcher, as in the extension: three icons in one pill, the current one in accent. */
+.s-views { margin-left: auto; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 8px; background: var(--w-hover); }
 .s-ph .s-views ~ .s-ic:first-of-type { margin-left: 0; }
-.s-views.open { padding: 0 2px; background: var(--w-hover); }
-.s-vopt { display: none; width: 26px; height: 26px; place-items: center; border-radius: 6px; color: var(--w-muted); }
-.s-vopt.on, .s-views.open .s-vopt { display: grid; }
-.s-views.open .s-vopt { animation: unroll 340ms cubic-bezier(0.34, 1.4, 0.64, 1) calc(var(--i) * 30ms) both; }
-.s-views.open .s-vopt.on { color: #d97757; }
-.s-vopt svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-@keyframes unroll { from { opacity: 0; transform: translateX(12px) scale(0.4); } }
+.s-vopt { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 6px; color: var(--w-muted); }
+.s-vopt.on { color: #d97757; background: var(--w-bg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.s-vopt svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .s-dlist { display: none; list-style: none; flex: 1; overflow: hidden; padding: 8px; }
 .s-panel.dview .s-tools, .s-panel.dview .s-list, .s-panel.dview .s-empty { display: none; }
 .s-panel.dview .s-dlist { display: block; }
