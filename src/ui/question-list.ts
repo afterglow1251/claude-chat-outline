@@ -25,6 +25,7 @@ function fade(el: Element, from: number, to: number, duration: number, fill: Fil
 }
 
 const UNREACHABLE_NOTE = "Claude hasn't loaded this message, so it can't be shown. What you asked:";
+const PLACE_TEXT = 'Where you left off';
 
 const ICON_SEARCH = 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM20 20l-3.6-3.6';
 
@@ -40,6 +41,8 @@ export interface QuestionList {
   expand(index: number): void;
   /** Loads this conversation's stars and clears the filter. */
   setConversation(convId: string | null): void;
+  /** Puts the "where you left off" bookmark on the question with this key, or takes it away. */
+  markPlace(key: string | null): void;
   /** Focuses the keyboard entry point; false if the list is empty. */
   focus(): boolean;
   /**
@@ -126,6 +129,32 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
 
   // The full text of a question claude.ai cannot show, under its row.
   let expanded = -1;
+  // The question you left off at last time (see place.ts), by key.
+  let placeKey: string | null = null;
+  function markPlace(key: string | null) {
+    placeKey = key;
+    renderAll();
+  }
+
+  // A small ribbon over the row's left edge; it drops in once when it is put there.
+  function patchPlace(li: Element, index: number) {
+    const here = !!placeKey && items[index].key === placeKey;
+    const ribbon = li.querySelector('.place');
+    const button = li.querySelector('.item')!;
+    if (!here) {
+      ribbon?.remove();
+      button.removeAttribute('aria-description');
+      return;
+    }
+    if (ribbon) return;
+    li.append(
+      h('span', { className: 'place', title: PLACE_TEXT, 'aria-hidden': 'true' }, [
+        h('span', { className: 'place-ribbon' }),
+      ])
+    );
+    button.setAttribute('aria-description', PLACE_TEXT);
+  }
+
   function expand(index: number) {
     expanded = index;
     renderAll();
@@ -164,6 +193,7 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     li.querySelector('.star')!.setAttribute('aria-pressed', String(isStarred(index)));
     if (expanded !== index) li.removeAttribute('data-expanded');
     patchDetail(li, index);
+    patchPlace(li, index);
   }
 
   // Patched in place: only what changed is touched, so nothing flickers
@@ -371,8 +401,10 @@ export function createQuestionList({ onSelect }: { onSelect(index: number): void
     },
     setActive,
     expand,
+    markPlace,
     setConversation(id) {
       convId = id;
+      placeKey = null;
       stars = new Set();
       query = '';
       starredOnly = false;

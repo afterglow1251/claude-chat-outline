@@ -29,6 +29,7 @@ import {
 } from './extract';
 import { createCoverage, createLedger } from './ledger';
 import { createLoader } from './load-all';
+import { createPlace } from './place';
 import { createResume } from './resume';
 import { containerTop, findScrollContainer, isDocScroller } from './scroll';
 import { createSeeker, seekLog } from './seek';
@@ -49,6 +50,11 @@ const known = new Map<string, readonly ApiQuestion[]>();
 // Stepping up from a question scrolled further than this above the line
 // goes back to that question's own start first.
 const STEP_INSIDE_PX = 16;
+// "Continue where you left off" (see resume.ts): turned off for now. It
+// came up on every reload and after every jump, and got in the way more
+// than it helped; the place is marked in the list instead (see place.ts).
+// Set to true to bring the offer back.
+const RESUME_ENABLED = false;
 
 // ---------------------------------------------------------------------------
 // Session: everything that lives for one conversation. convId is the
@@ -119,7 +125,8 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   const coverage = createCoverage();
   const ledger = createLedger();
   const cache = convId ? Sources.createCache(convId) : null;
-  const resume = convId ? createResume(convId, view) : null;
+  const resume = convId && RESUME_ENABLED ? createResume(convId, view) : null;
+  const place = convId && !RESUME_ENABLED ? createPlace(convId, view) : null;
   let unlistenUserScroll: (() => void) | null = null;
   const seeker = createSeeker({
     view,
@@ -293,6 +300,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
     view.setActive(index);
     const container = tracker?.container;
     resume?.update(items, index, settled, container && !isDocScroller(container) ? container : null);
+    place?.update(items, index, settled);
   }
 
   // From the question being read (or the one a running jump goes to, so
@@ -387,6 +395,7 @@ export function createSession(view: View, convId: string | null, leftover?: Read
   function stop() {
     if (saveTimer) saveNow();
     resume?.stop();
+    place?.stop();
     stopped = true;
     loader.cancel();
     seeker.cancel();

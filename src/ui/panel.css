@@ -327,10 +327,36 @@ svg {
 }
 
 .list li {
+  position: relative;
   display: flex;
   flex-wrap: wrap; /* the detail block, when shown, takes a row of its own */
   align-items: flex-start;
   border-radius: 6px;
+}
+
+/* Where you left off (see place.ts): a bookmark ribbon hanging over the
+   row's left edge. It drops in from the row's top once (movement only). */
+.place {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  width: 5px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.place-ribbon {
+  display: block;
+  height: 100%;
+  background: var(--co-accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  animation: co-ribbon 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes co-ribbon {
+  from {
+    transform: translateY(-100%);
+  }
 }
 
 /* The full text of a question claude.ai cannot show. */
@@ -807,5 +833,9 @@ li:has(:focus-visible) .star,
 
   .live-box {
     transition: none;
+  }
+
+  .place-ribbon {
+    animation: none;
   }
 }

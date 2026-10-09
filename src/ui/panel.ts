@@ -610,6 +610,7 @@ export function createPanel({
     unreachable: (index) => questions.expand(index),
     seeking: (on, clip = null) => (on ? seekingPill.show(clip) : seekingPill.hide()),
     offerResume: (offer, clip = null) => (offer ? resumePill.show(offer, clip) : resumePill.hide()),
+    markPlace: (key) => questions.markPlace(key),
     setConversation(convId) {
       questions.setConversation(convId);
       diagrams.setConversation(convId);

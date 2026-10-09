@@ -123,4 +123,6 @@ export interface View {
    * this chat (shown over `clip`, as `seeking`), or take the offer away.
    */
   offerResume(offer: ResumeOffer | null, clip?: Element | null): void;
+  /** Marks the question you left off at (by its matching key) in the list, or clears the mark. */
+  markPlace(key: string | null): void;
 }
