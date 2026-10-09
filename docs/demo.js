@@ -410,7 +410,7 @@
   const feed = $('.s-feed');
   const turns = [...stage.querySelectorAll('[data-turn]')];
   const rows = [...stage.querySelectorAll('[data-row]')];
-  const flashes = [...stage.querySelectorAll('.s-flash')];
+  const flashes = [...stage.querySelectorAll('.s-user .s-flash')]; // the questions' own, not the diagrams'
   const list = $('.s-list');
   const panel = $('.s-panel');
   const tab = $('.s-tab');
