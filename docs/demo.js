@@ -16,6 +16,7 @@
     {
       q: 'Help me plan a habit tracker app. What should the first version include?',
       a: 'Keep it to three things: create a habit, check it off for today, and see the current streak. Reminders, stats and sharing can wait until people actually use the core loop.',
+      diagram: 'flow',
     },
     {
       q: 'SQLite or Postgres for a side project like this?',
@@ -25,6 +26,7 @@
       q: 'Write the schema for habits and daily check-ins',
       a: 'Two tables are enough. A check-in is one row per habit per day, so a unique index keeps double taps from counting twice.',
       code: 'create table checkins (\n  habit_id integer references habits(id),\n  day      date not null,\n  unique (habit_id, day)\n);',
+      diagram: 'tables',
     },
     {
       q: 'How do I calculate a streak that survives time zones?',
@@ -66,6 +68,25 @@
   ];
   const N = CHAT.length;
 
+  // The diagrams Claude drew in its answers, as small inline visuals (teal
+  // and coral boxes, like claude.ai's), and how the Diagrams view lists them.
+  const dgBox = (cls, x, y, w, h, lines) =>
+    `<g class="${cls}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"/>` +
+    lines.map(([text, sub], k) => `<text class="${sub ? 'dg-ts' : 'dg-th'}" x="${x + w / 2}" y="${y + 22 + k * 20}">${text}</text>`).join('') +
+    '</g>';
+  const dgArrow = (x1, x2, y) => `<path class="dg-arr" d="M${x1} ${y}H${x2}M${x2 - 6} ${y - 5}L${x2} ${y}L${x2 - 6} ${y + 5}"/>`;
+  const DIAGRAMS = {
+    flow: {
+      title: 'First version',
+      svg: `<svg viewBox="0 0 520 70">${dgBox('c-teal', 4, 7, 140, 56, [['Create a habit'], ['one tap', 1]])}${dgArrow(150, 184, 35)}${dgBox('c-teal', 190, 7, 140, 56, [['Check in today'], ['once a day', 1]])}${dgArrow(336, 370, 35)}${dgBox('c-coral', 376, 7, 140, 56, [['See the streak'], ['days in a row', 1]])}</svg>`,
+    },
+    tables: {
+      title: 'Habits and check-ins',
+      svg: `<svg viewBox="0 0 520 96">${dgBox('c-teal', 70, 8, 150, 80, [['habits'], ['id', 1], ['name', 1]])}${dgArrow(226, 294, 48)}<text class="dg-ts dg-on" x="260" y="34">one to many</text>${dgBox('c-coral', 300, 8, 150, 80, [['checkins'], ['habit_id', 1], ['day', 1]])}</svg>`,
+    },
+  };
+  const DRAWN = CHAT.map((m, i) => ({ ...m, i })).filter((m) => m.diagram);
+
   // ----- the timeline --------------------------------------------------------
 
   const mod = isMac ? '⌘' : 'Ctrl';
@@ -80,6 +101,7 @@
     { id: 'step', title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
     { id: 'hide', title: `${mod} Shift O to hide`, dur: 4.4 },
     { id: 'theme', title: 'Light and dark', dur: 4.2 },
+    { id: 'diagrams', title: 'See every diagram', dur: 7.6 },
   ];
   let acc = 0;
   for (const c of CHAPTERS) {
@@ -131,6 +153,11 @@
       cursor: cursorPath(0, [[0, 'rest']]),
       click: undefined,
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
+      diagrams: false, // the panel shows the Diagrams view
+      previews: 0, // the diagrams' previews: 0 shimmering to 1 drawn
+      dHover: -1, // the diagram row under the cursor
+      toDiagram: null, // { index, p }: the chat scrolling to diagram `index` (p: 0 to 1)
+      dFlash: null, // { index, at }: the highlight on a diagram in the chat
     };
 
     if (id === 'panel') {
@@ -255,6 +282,26 @@
       s.panel = 1 - out(seg(t, hide, hide + 0.45)) + out(seg(t, show, show + 0.45));
     }
 
+    if (id === 'diagrams') {
+      // Open the Diagrams view, watch the previews draw, jump to one.
+      s.stars = [4, 8];
+      s.dark = true;
+      s.chatPos = 9;
+      s.active = 9;
+      const open = 1.4;
+      const pick = 3.9;
+      s.cursor = cursorPath(t, [[0, 'chat'], [1.2, 'dbtn'], [2.7, 'dbtn'], [3.6, 'drow:1']]);
+      s.click = clickAt(t, [open, pick]);
+      s.diagrams = t >= open;
+      s.previews = out(seg(t, open + 0.8, open + 1.2));
+      s.dHover = t > 3.3 ? 1 : -1;
+      if (t >= pick) {
+        s.active = 2;
+        s.toDiagram = { index: 1, p: inOut(seg(t, pick + 0.05, pick + 1.3)) };
+        s.dFlash = { index: 1, at: pick + 1.1 };
+      }
+    }
+
     if (id === 'theme') {
       s.stars = [4, 8];
       s.chatPos = 1;
@@ -318,7 +365,7 @@
                 (m, i) => `
                 <div class="s-turn" data-turn="${i}">
                   <div class="s-user">${esc(m.q)}<span class="s-flash"><span></span></span></div>
-                  <div class="s-answer"><p>${esc(m.a)}</p>${m.code ? `<pre>${esc(m.code)}</pre>` : ''}</div>
+                  <div class="s-answer"><p>${esc(m.a)}</p>${m.diagram ? `<div class="s-diagram">${DIAGRAMS[m.diagram].svg}<span class="s-flash"><span></span></span></div>` : ''}${m.code ? `<pre>${esc(m.code)}</pre>` : ''}</div>
                 </div>`
               ).join('')}
               <div class="s-tail"></div>
@@ -331,6 +378,7 @@
 
       <div class="s-panel">
         <div class="s-ph"><b>Questions</b><span>${N}</span>
+          <i class="s-ic s-dbtn"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="M2.5 3h11v10h-11zM9 3v10"/></svg></i>
           <i class="s-ic"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></i>
         </div>
@@ -344,6 +392,11 @@
           ).join('')}
         </ol>
         <p class="s-empty">No questions match.</p>
+        <ol class="s-dlist">
+          ${DRAWN.map(
+            (m) => `<li><div class="s-dprev"><i class="s-shimmer"></i>${DIAGRAMS[m.diagram].svg}</div><b>${esc(DIAGRAMS[m.diagram].title)}</b><span>Question ${m.i + 1}</span></li>`
+          ).join('')}
+        </ol>
       </div>
       <div class="s-tab"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg><span>Outline</span><span class="s-tab-n">${N}</span></div>
 
@@ -373,6 +426,13 @@
   const wheel = $('.s-wheel');
   const windowEl = $('.s-window');
   const empty = $('.s-empty');
+  const heading = $('.s-ph b');
+  const dBtn = $('.s-dbtn');
+  const dRows = [...stage.querySelectorAll('.s-dlist li')];
+  const dShimmers = [...stage.querySelectorAll('.s-shimmer')];
+  const dPreviews = dRows.map((r) => r.querySelector('svg'));
+  const dInChat = [...stage.querySelectorAll('.s-diagram')];
+  const dFlashes = dInChat.map((d) => d.querySelector('.s-flash'));
 
   // ----- layout --------------------------------------------------------------
 
@@ -396,7 +456,9 @@
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
     if (name === 'list') return pointOf(list, 0.5, 0.45);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
+    if (name === 'dbtn') return pointOf(dBtn, 0.5, 0.55);
     const [kind, i] = name.split(':');
+    if (kind === 'drow') return pointOf(dRows[+i].firstChild, 0.45, 0.55);
     const row = rows[+i];
     if (kind === 'item') return pointOf(row.querySelector('.s-label'), 0.3, 0.6);
     if (kind === 'star') return pointOf(row.querySelector('.s-star'), 0.5, 0.55);
@@ -405,8 +467,10 @@
 
   // Top of each turn in the feed, measured (they differ in height).
   let tops = [];
+  let dTops = []; // the diagrams in the chat, from the feed's top
   const measure = () => {
     tops = turns.map((el) => el.offsetTop);
+    dTops = dInChat.map((el) => el.offsetTop);
   };
 
   // ----- render --------------------------------------------------------------
@@ -425,13 +489,16 @@
     const f = s.chatPos - i;
     const y0 = tops[clamp(i, 0, N - 1)];
     const y1 = i + 1 < N ? tops[i + 1] : y0;
-    feed.style.transform = `translateY(${-(lerp(y0, y1, f) - 24)}px)`;
+    let scrollY = lerp(y0, y1, f) - 24;
+    // Jumping to a diagram: on past its question, to the diagram itself.
+    if (s.toDiagram) scrollY = lerp(scrollY, dTops[s.toDiagram.index] - 24, s.toDiagram.p);
+    feed.style.transform = `translateY(${-scrollY}px)`;
     turns.forEach((el, k) => el.classList.toggle('gone', k < s.unloadedBelow));
     // The "here it is" ring, timed like the extension's: fade in, hold
     // while a light sweeps across, slow fade out; 1.8s in all.
     const local = T - CHAPTERS[s.chapter].start;
-    flashes.forEach((el, k) => {
-      const ms = s.flash && s.flash.index === k ? (local - s.flash.at) * 1000 : -1;
+    const ring = (el, flash, k) => {
+      const ms = flash && flash.index === k ? (local - flash.at) * 1000 : -1;
       if (ms < 0 || ms > 1800) {
         el.style.opacity = 0;
         return;
@@ -440,11 +507,25 @@
       el.style.opacity = p < 0.12 ? out(p / 0.12) : p < 0.7 ? 1 : 1 - inOut((p - 0.7) / 0.3);
       const sweep = clamp((ms - 150) / 1100);
       el.firstChild.style.transform = `translateX(${lerp(-100, 100, inOut(sweep))}%)`;
-    });
+    };
+    flashes.forEach((el, k) => ring(el, s.flash, k));
+    dFlashes.forEach((el, k) => ring(el, s.dFlash, k));
     loader.style.opacity = s.loading;
     // The sidebar marks this chat.
     sideItems.forEach((el, k) => el.classList.toggle('on', k === 0));
-    count.textContent = N;
+    // Questions or Diagrams in the panel. Previews shimmer, then the
+    // drawing fades in over the shimmer, like the extension's.
+    panel.classList.toggle('dview', s.diagrams);
+    dBtn.classList.toggle('on', s.diagrams);
+    heading.textContent = s.diagrams ? 'Diagrams' : 'Questions';
+    count.textContent = s.diagrams ? DRAWN.length : N;
+    const pulse = 0.8 + 0.2 * Math.cos((local / 1.6) * 2 * Math.PI);
+    dShimmers.forEach((el) => (el.style.opacity = s.previews < 1 ? pulse : 0));
+    dPreviews.forEach((el) => {
+      el.style.opacity = s.previews;
+      el.style.transform = `translateY(${(1 - s.previews) * 4}px)`;
+    });
+    dRows.forEach((el, k) => el.classList.toggle('hover', k === s.dHover));
     loader.style.transform = `translate(-50%, ${lerp(-10, 0, s.loading)}px)`;
 
     // Panel.
