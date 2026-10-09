@@ -137,7 +137,7 @@ function detectTheme(): Theme {
 
 export interface PanelCallbacks {
   onSelect(index: number): void;
-  /** Alt+↑ / Alt+↓: the previous (-1) or next (1) question. */
+  /** Cmd/Ctrl+Shift+↑ / ↓: the previous (-1) or next (1) question. */
   onStep(delta: 1 | -1): void;
   /** The offer to continue where you left off was taken (an index) or dismissed (null). */
   onResume(index: number | null): void;
@@ -156,9 +156,9 @@ export interface Panel extends View {
   destroy(): void;
 }
 
-// Alt+↑/↓ in a field you are typing in moves the caret there (macOS), so
+// Cmd/Ctrl+Shift+↑/↓ in a field you are typing in selects text there, so
 // it is left alone unless the field is empty: claude.ai keeps its message
-// box focused, and an empty one has nowhere for the caret to go.
+// box focused, and an empty one has nothing to select.
 function editingText(e: KeyboardEvent): boolean {
   const t = e.composedPath()[0];
   if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return t.value !== '';
@@ -267,7 +267,7 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
       className: 'tab',
       'aria-label': 'Expand chat outline',
       'aria-expanded': 'false',
-      title: 'Show outline (Cmd/Ctrl+Shift+O). Alt+↑/↓: previous/next question',
+      title: 'Show outline (Cmd/Ctrl+Shift+O). Cmd/Ctrl+Shift+↑/↓: previous/next question',
     },
     [icon(ICONS.expand), h('span', { className: 'tab-label' }, ['Outline']), tabCount]
   );
@@ -414,8 +414,8 @@ export function createPanel({ onSelect, onStep, onResume, onLoadAll, onCancelLoa
     'keydown',
     (e) => {
       if (!state.visible || !state.ready) return;
-      // Alt+↑/↓: the previous/next question, with the panel open or not.
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      // Cmd/Ctrl+Shift+↑/↓: the previous/next question, with the panel open or not.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         if (editingText(e)) return;
         e.preventDefault();
         e.stopPropagation();

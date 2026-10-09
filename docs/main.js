@@ -9,12 +9,11 @@ document.documentElement.classList.add('js');
 for (const a of document.querySelectorAll('[data-repo]')) a.href = REPO;
 for (const a of document.querySelectorAll('[data-download]')) a.href = DOWNLOAD;
 
-// Ctrl and Alt instead of Cmd and Option off the Mac.
+// Ctrl instead of Cmd off the Mac.
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 if (!isMac) {
   for (const k of document.querySelectorAll('[data-mod]')) k.textContent = 'Ctrl';
   for (const k of document.querySelectorAll('[data-mod-text]')) k.textContent = 'Ctrl';
-  for (const k of document.querySelectorAll('[data-alt], [data-alt-text]')) k.textContent = 'Alt';
 }
 
 // Reveal blocks as they scroll into view, once.
