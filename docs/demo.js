@@ -71,7 +71,7 @@
   const mod = isMac ? '⌘' : 'Ctrl';
   const CHAPTERS = [
     { title: 'Every question in one panel', dur: 4.5 },
-    { title: 'Click to jump', dur: 4.8 },
+    { title: 'Click to jump', dur: 5.9 },
     { title: 'Follows as you read', dur: 4.6 },
     { title: 'Search your questions', dur: 7.2 },
     { title: 'Star the ones that matter', dur: 6 },
@@ -123,6 +123,7 @@
       loading: 0,
       keys: 0,
       dark: false,
+      listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
       cursor: cursorPath(0, [[0, 'rest']]),
       click: undefined,
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
@@ -135,10 +136,14 @@
     }
 
     if (ci === 1) {
-      const keys = [[0.2, 'rest'], [1.5, 'item:2']];
-      s.cursor = cursorPath(t, keys);
-      s.hover = t > 1.2 ? 2 : -1;
-      const click = 1.8;
+      // Question 3 is above what the list shows (it follows question 10):
+      // scroll the list up to it first, then click it.
+      s.cursor = cursorPath(t, [[0.2, 'rest'], [1.0, 'list'], [2.0, 'list'], [2.6, 'item:2']]);
+      s.wheel = t > 1.0 && t < 2.0;
+      s.wheelUp = true;
+      s.listUp = inOut(seg(t, 1.1, 1.9));
+      s.hover = t > 2.3 ? 2 : -1;
+      const click = 2.85;
       s.click = clickAt(t, [click]);
       if (t >= click) {
         s.active = 2;
@@ -350,6 +355,7 @@
     if (name === 'rest') return { x: 640, y: 560 };
     if (name === 'chat') return { x: 600, y: 380 };
     if (name === 'filter') return pointOf(filterBox, 0.35, 0.55);
+    if (name === 'list') return pointOf(list, 0.5, 0.45);
     if (name === 'starBtn') return pointOf(starBtn, 0.5, 0.55);
     const [kind, i] = name.split(':');
     const row = rows[+i];
@@ -427,7 +433,8 @@
     // Keep the active row in view, like the real panel.
     const activeRow = rows[s.active];
     if (activeRow && !activeRow.hidden) {
-      const want = clamp(activeRow.offsetTop - list.clientHeight * 0.4, 0, list.scrollHeight - list.clientHeight);
+      const follow = clamp(activeRow.offsetTop - list.clientHeight * 0.4, 0, list.scrollHeight - list.clientHeight);
+      const want = lerp(follow, 0, s.listUp);
       listScroll = smooth ? lerp(listScroll, want, 0.18) : want;
     } else if (!smooth) listScroll = 0;
     list.scrollTop = listScroll;
@@ -453,6 +460,7 @@
       cursor.classList.remove('press');
     }
     wheel.style.opacity = s.wheel ? 1 : 0;
+    wheel.classList.toggle('up', !!s.wheelUp);
     wheel.style.transform = `translate(${x + 18}px, ${y + 16}px)`;
 
     return s;

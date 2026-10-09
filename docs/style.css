@@ -550,4 +550,5 @@ h3 { font-size: 18px; letter-spacing: -0.01em; font-weight: 600; }
   content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 5px; margin-left: -1px;
   background: var(--w-muted); border-radius: 1px; animation: wheel 0.9s ease-in-out infinite;
 }
+.s-wheel.up::after { animation-direction: reverse; }
 @keyframes wheel { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(7px); opacity: 0; } }
