@@ -9,6 +9,7 @@ import { createResumePill } from './resume';
 import { createSeekingPill } from './seeking';
 import { createQuestionList } from './question-list';
 import { createDiagramList } from './diagram-list';
+import { createCodeList } from './code-list';
 import * as S from '../core/selectors';
 import type { DiagramTarget, LoadReason, LoadState, RenderResult, Status, View } from '../core/types';
 
@@ -52,11 +53,32 @@ const ICONS = {
   expand: 'M15 6l-6 6 6 6',
   loadAll: 'M12 20V8M7 13l5-5 5 5M5 4h14',
   push: 'M4 5h16v14H4zM14 5v14',
-  diagrams: 'M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z',
 } as const;
 
-type ViewName = 'questions' | 'diagrams';
-const VIEW_TITLE: Record<ViewName, string> = { questions: 'Questions', diagrams: 'Diagrams' };
+// What the panel shows, picked from a strip in its header (see the view
+// switcher below). In the strip's order, left to right.
+type ViewName = 'questions' | 'diagrams' | 'code';
+const VIEWS: readonly { name: ViewName; title: string; icon: string; one: string; many: string }[] = [
+  {
+    name: 'questions',
+    title: 'Questions',
+    icon: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+    one: 'question',
+    many: 'questions',
+  },
+  {
+    name: 'diagrams',
+    title: 'Diagrams',
+    icon: 'M4 4h7v7H4zM14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M7.5 14L4 20h7zM14 14h7v7h-7z',
+    one: 'diagram',
+    many: 'diagrams',
+  },
+  { name: 'code', title: 'Code', icon: 'M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16', one: 'block', many: 'blocks' },
+];
+const viewOf = (name: ViewName) => VIEWS.find((v) => v.name === name)!;
+// The strip closes this long after the pointer has left it, so drifting
+// between its icons doesn't snap it shut.
+const STRIP_CLOSE_MS = 60;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -143,7 +165,7 @@ function detectTheme(): Theme {
 
 export interface PanelCallbacks {
   onSelect(index: number): void;
-  /** A diagram was picked: jump to it, in the answer to question `index`. */
+  /** A diagram or a code block was picked: jump to it, in the answer to question `index`. */
   onSelectDiagram(index: number, target: DiagramTarget): void;
   /** Cmd/Ctrl+Shift+↑ / ↓: the previous (-1) or next (1) question. */
   onStep(delta: 1 | -1): void;
@@ -195,6 +217,7 @@ export function createPanel({
     view: 'questions' as ViewName,
     questionCount: { text: '', label: '0 questions' },
     diagramCount: null as number | null,
+    codeCount: null as number | null,
   };
   const cleanups: (() => void)[] = [];
   const listen = <E extends Event>(
@@ -226,17 +249,27 @@ export function createPanel({
     },
     [icon(ICONS.loadAll)]
   );
-  const diagramsBtn = h(
-    'button',
-    {
-      type: 'button',
-      className: 'icon-btn',
-      'aria-label': 'Show diagrams',
-      'aria-pressed': 'false',
-      title: 'Diagrams Claude made in this chat',
-    },
-    [icon(ICONS.diagrams)]
-  );
+  // The view switcher, as in Sonar: at rest one icon, the current view's.
+  // Point at it (or click it) and the views spring out to its left, one
+  // after another; the current one is in the accent colour.
+  const viewBtns = VIEWS.map((v, i) => {
+    const btn = h(
+      'button',
+      {
+        type: 'button',
+        className: 'view-opt',
+        'data-view': v.name,
+        'aria-label': v.title,
+        'aria-pressed': String(v.name === 'questions'),
+        title: v.title,
+      },
+      [icon(v.icon)]
+    );
+    // How far from the icon at rest: the nearer ones come out first.
+    btn.style.setProperty('--i', String(VIEWS.length - 1 - i));
+    return btn;
+  });
+  const views = h('div', { className: 'views', role: 'group', 'aria-label': 'View' }, viewBtns);
   const pushBtn = h(
     'button',
     {
@@ -275,6 +308,14 @@ export function createPanel({
     theme: () => (host.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'),
   });
   diagrams.element.hidden = true;
+  const code = createCodeList({
+    onSelect: onSelectDiagram,
+    onCount(n) {
+      state.codeCount = n;
+      renderCount();
+    },
+  });
+  code.element.hidden = true;
   const titleLink = h(
     'a',
     {
@@ -284,7 +325,7 @@ export function createPanel({
       rel: 'noopener noreferrer',
       title: 'How it works: shortcuts and a demo',
     },
-    [VIEW_TITLE.questions]
+    [viewOf('questions').title]
   );
   const resizer = h('div', {
     className: 'resizer',
@@ -306,13 +347,14 @@ export function createPanel({
           count,
         ]),
         loadBtn,
-        diagramsBtn,
+        views,
         pushBtn,
         collapseBtn,
       ]),
       status,
       questions.element,
       diagrams.element,
+      code.element,
     ]),
   ]);
   const tabCount = h('span', { className: 'tab-count' });
@@ -375,7 +417,7 @@ export function createPanel({
       if (back instanceof HTMLElement && back !== host && back.isConnected) back.focus();
       else tab.focus();
     } else {
-      const list = state.view === 'questions' ? questions : diagrams;
+      const list = { questions, diagrams, code }[state.view];
       if (!list.focus()) collapseBtn.focus();
     }
   }
@@ -386,21 +428,49 @@ export function createPanel({
     if (persist) storageSet({ width: state.width });
   }
 
-  // Questions or diagrams in the panel's body. The diagrams are read again
-  // each time their view is opened (see diagram-list.ts).
+  // Questions, diagrams or code in the panel's body. Diagrams and code are
+  // checked again with claude.ai each time their view is opened.
   function setView(view: ViewName) {
     state.view = view;
-    const showDiagrams = view === 'diagrams';
-    questions.element.hidden = showDiagrams;
-    diagrams.element.hidden = !showDiagrams;
-    diagramsBtn.setAttribute('aria-pressed', String(showDiagrams));
-    diagramsBtn.setAttribute('aria-label', showDiagrams ? 'Show questions' : 'Show diagrams');
-    titleLink.textContent = VIEW_TITLE[view];
-    if (showDiagrams) diagrams.show();
+    questions.element.hidden = view !== 'questions';
+    diagrams.element.hidden = view !== 'diagrams';
+    code.element.hidden = view !== 'code';
+    for (const b of viewBtns) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+    titleLink.textContent = viewOf(view).title;
+    if (view === 'diagrams') diagrams.show();
+    else if (view === 'code') code.show();
     else questions.revealActive();
     renderCount();
     renderStatus();
   }
+
+  // ----- view switcher ------------------------------------------------------
+
+  let stripTimer: ReturnType<typeof setTimeout> | undefined;
+  cleanups.push(() => clearTimeout(stripTimer));
+  function setStrip(open: boolean) {
+    clearTimeout(stripTimer);
+    views.classList.toggle('open', open);
+  }
+  // Opens the moment the pointer lands on it; closes once it has left the
+  // whole strip, after a blink.
+  listen(views, 'pointerenter', () => setStrip(true));
+  listen(views, 'pointerleave', () => {
+    clearTimeout(stripTimer);
+    stripTimer = setTimeout(() => setStrip(false), STRIP_CLOSE_MS);
+  });
+  listen(views, 'focusin', () => setStrip(true));
+  listen<FocusEvent>(views, 'focusout', (e) => {
+    if (!views.contains(e.relatedTarget as Node | null)) setStrip(false);
+  });
+  listen<MouseEvent>(views, 'click', (e) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>('.view-opt');
+    if (!btn) return;
+    // A tap with no hover before it (a touch screen): the first one opens it.
+    if (!views.classList.contains('open')) return setStrip(true);
+    const view = btn.dataset.view as ViewName;
+    if (view !== state.view) setView(view);
+  });
 
   // ----- rendering --------------------------------------------------------
 
@@ -409,9 +479,10 @@ export function createPanel({
       count.textContent = state.questionCount.text;
       count.setAttribute('aria-label', state.questionCount.label);
     } else {
-      const n = state.diagramCount;
+      const n = state.view === 'diagrams' ? state.diagramCount : state.codeCount;
+      const v = viewOf(state.view);
       count.textContent = n === null ? '' : String(n);
-      count.setAttribute('aria-label', n === null ? '' : `${n} diagram${n === 1 ? '' : 's'}`);
+      count.setAttribute('aria-label', n === null ? '' : `${n} ${n === 1 ? v.one : v.many}`);
     }
   }
 
@@ -423,15 +494,15 @@ export function createPanel({
     else if (state.status !== 'ok' && state.status !== 'no-feed') text = STATUS_TEXT[state.status];
     else if (state.notice) text = state.notice;
     else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
-    // All about the questions: the diagrams come from the API, complete.
-    if (state.view === 'diagrams') text = '';
+    // All about the questions: diagrams and code come from the API, complete.
+    if (state.view !== 'questions') text = '';
     status.hidden = !text;
     status.dataset.kind = !state.loading && state.status === 'selectors-broken' ? 'error' : '';
     status.classList.toggle('loading', !!state.loading);
     if (statusText.textContent !== text) statusText.textContent = text;
     cancelBtn.hidden = !state.loading;
     // Nothing to load once the list is complete (always so with the API).
-    loadBtn.hidden = state.view === 'diagrams' || (!state.loading && !state.incomplete);
+    loadBtn.hidden = state.view !== 'questions' || (!state.loading && !state.incomplete);
     loadBtn.disabled = !!state.loading;
   }
 
@@ -479,7 +550,6 @@ export function createPanel({
     onLoadAll();
   });
   listen(cancelBtn, 'click', () => onCancelLoad());
-  listen(diagramsBtn, 'click', () => setView(state.view === 'diagrams' ? 'questions' : 'diagrams'));
   listen(pushBtn, 'click', () => {
     state.layout = state.layout === 'push' ? 'overlay' : 'push';
     storageSet({ layout: state.layout });
@@ -610,7 +680,9 @@ export function createPanel({
     setConversation(convId) {
       questions.setConversation(convId);
       diagrams.setConversation(convId);
+      code.setConversation(convId);
       if (state.view === 'diagrams') diagrams.show();
+      else if (state.view === 'code') code.show();
     },
     setVisible(visible) {
       state.visible = visible;
@@ -636,6 +708,7 @@ export function createPanel({
       resumePill.hide();
       cleanups.forEach((fn) => fn());
       diagrams.destroy();
+      code.destroy();
       themeObserver.disconnect();
       state.visible = false;
       applyPush();

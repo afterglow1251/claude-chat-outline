@@ -4,8 +4,8 @@
 //    which knows every message, including ones the page has not rendered;
 //  - chrome.storage.local, for what is kept between visits.
 // Nothing here talks to any server other than claude.ai itself.
-import { parseConversation, parseDiagrams } from './conversation';
-import type { ApiQuestion, Diagram } from '../core/types';
+import { parseCode, parseConversation, parseDiagrams } from './conversation';
+import type { ApiQuestion, CodeBlock, Diagram } from '../core/types';
 import { warnOnce } from '../core/util';
 
 /** Key prefix of each conversation's stored questions (see store.ts). */
@@ -180,15 +180,17 @@ async function fetchConversation<T>(convId: string, parse: (data: unknown) => T 
 export interface ConversationParts {
   questions: ApiQuestion[];
   diagrams: Diagram[];
+  code: CodeBlock[];
 }
 
-/** Your questions and Claude's diagrams, read from one response, or null if the API is unavailable. */
+/** Your questions, Claude's diagrams and its code, read from one response, or null if the API is unavailable. */
 export async function fetchConversationParts(convId: string): Promise<ConversationParts | null> {
   try {
     return await fetchConversation(convId, (data) => {
       const questions = parseConversation(data);
       const diagrams = parseDiagrams(data);
-      return questions && diagrams ? { questions, diagrams } : null;
+      const code = parseCode(data);
+      return questions && diagrams && code ? { questions, diagrams, code } : null;
     });
   } catch (err) {
     warnOnce('conversation API unavailable, using the page only', err);

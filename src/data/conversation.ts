@@ -4,7 +4,7 @@
 // Pure: no DOM, no chrome.* APIs.
 //
 // The API is not public. Only the fields below are relied on.
-import type { ApiQuestion, Diagram, DiagramKind } from '../core/types';
+import type { ApiQuestion, CodeBlock, Diagram, DiagramKind } from '../core/types';
 
 interface ApiContent {
   type?: string;
@@ -163,4 +163,59 @@ export function parseDiagrams(data: unknown): Diagram[] | null {
     }
   }
   return diagrams;
+}
+
+// ---------------------------------------------------------------------------
+// Code: the fenced blocks in Claude's answers, and its code artifacts.
+// ---------------------------------------------------------------------------
+
+// A fence on a line of its own: ```lang ... ``` (the info string's first word is the language).
+const FENCE = /(?:^|\n)[ \t]*```[ \t]*([^\n`]*)\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\n|$)/g;
+
+function fenced(text: string): { language: string; code: string }[] {
+  return [...text.matchAll(FENCE)]
+    .map((m) => ({ language: m[1].trim().split(/\s+/)[0] || '', code: m[2] }))
+    .filter((b) => b.code.trim());
+}
+
+/**
+ * Claude's code on the visible branch, in chat order. A code artifact
+ * changed later in the chat is listed once, where its last version is.
+ */
+export function parseCode(data: unknown): CodeBlock[] | null {
+  const branch = visibleBranch(data);
+  if (!branch) return null;
+  const blocks: CodeBlock[] = [];
+  const artifacts = new Map<string, CodeBlock>();
+  let question = -1;
+  for (const m of branch) {
+    if (!m) continue;
+    if (m.sender === 'human') question++;
+    if (m.sender !== 'assistant' || !Array.isArray(m.content)) continue;
+    const at = Math.max(question, 0);
+    for (const c of m.content as (ApiContent | null)[]) {
+      if (!c) continue;
+      if (c.type === 'text' && typeof c.text === 'string') {
+        for (const b of fenced(c.text)) blocks.push({ ...b, question: at });
+        continue;
+      }
+      if (c.type !== 'tool_use' || c.name !== 'artifacts' || !c.input || typeof c.input !== 'object') continue;
+      const input = c.input as Input;
+      const id = str(input.id);
+      const prev = id ? artifacts.get(id) : undefined;
+      if (!prev && str(input.type) !== 'application/vnd.ant.code') continue;
+      let code = str(input.content);
+      if (input.command === 'update') {
+        if (!prev) continue;
+        const from = str(input.old_str);
+        code = from ? prev.code.replace(from, () => str(input.new_str)) : prev.code;
+      }
+      if (!code.trim()) continue;
+      const block = { language: str(input.language) || prev?.language || '', code, question: at };
+      if (prev) blocks.splice(blocks.indexOf(prev), 1);
+      if (id) artifacts.set(id, block);
+      blocks.push(block);
+    }
+  }
+  return blocks;
 }

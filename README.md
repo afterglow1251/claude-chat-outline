@@ -19,7 +19,7 @@ Works in Chrome, Edge, Brave, Arc and other Chromium browsers (114+).
 - Click a question to jump to it. The one you're reading is highlighted.
 - Search the list and star questions to keep important ones at hand.
 - <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> jumps to the previous or next question, with the panel open or closed.
-- The shapes button lists the diagrams Claude made in the chat (SVG, Mermaid, HTML and React), with a preview of each SVG. Click one to jump to its answer.
+- Point at the icon in the panel's header to switch between your questions, the diagrams Claude drew (with a live preview of each) and the code it wrote (with a copy button). Click a diagram or a code block to jump straight to it in the chat.
 - <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> shows or hides the panel.
 
 ## Privacy

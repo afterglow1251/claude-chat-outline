@@ -1,6 +1,7 @@
-// One cache of what claude.ai says about each conversation: your questions
-// and Claude's diagrams. The session (outline.ts) and the Diagrams view
-// read it and hear about every change; neither asks the API itself.
+// One cache of what claude.ai says about each conversation: your questions,
+// Claude's diagrams and its code. The session (outline.ts) and the Diagrams
+// and Code views read it and hear about every change; none asks the API
+// itself.
 //
 // Filled from, cheapest first:
 //  - memory: everything this tab has received, for the most recent chats;
@@ -12,7 +13,7 @@
 //    two at once for the same chat.
 // What is known is shown at once and checked again behind it. A list that
 // did not change keeps its identity, so nothing that shows it redraws.
-import type { ApiQuestion, Diagram } from '../core/types';
+import type { ApiQuestion, CodeBlock, Diagram } from '../core/types';
 import { safe } from '../core/util';
 import { watchConversations } from './intercept';
 import { CACHE_PREFIX, fetchConversationParts, storageGet, storageSet } from './sources';
@@ -39,6 +40,8 @@ interface State {
   questionsAt: number | null;
   /** Claude's diagrams; null until our own request has read them (claude.ai's response is relayed as questions only). */
   diagrams: readonly Diagram[] | null;
+  /** Claude's code blocks; null until our own request has read them, like the diagrams. */
+  code: readonly CodeBlock[] | null;
   /** When our own request last succeeded, or null. */
   fetchedAt: number | null;
 }
@@ -77,6 +80,7 @@ function chat(id: string): Chat {
       source: null,
       questionsAt: null,
       diagrams: null,
+      code: null,
       fetchedAt: null,
       stored: null,
       request: null,
@@ -107,6 +111,10 @@ const sameDiagrams = (a: readonly Diagram[], b: readonly Diagram[]) =>
   a.every(
     (d, i) => d.kind === b[i].kind && d.title === b[i].title && d.question === b[i].question && d.source === b[i].source
   );
+
+const sameCode = (a: readonly CodeBlock[], b: readonly CodeBlock[]) =>
+  a.length === b.length &&
+  a.every((c, i) => c.language === b[i].language && c.question === b[i].question && c.code === b[i].code);
 
 // ----- chrome.storage --------------------------------------------------------
 
@@ -218,6 +226,7 @@ export function refresh(convId: string, maxAge = 0): Promise<boolean> {
       r.fetchedAt = performance.now();
       const believable = takeQuestions(r, parts.questions, 'api');
       if (!r.diagrams || !sameDiagrams(r.diagrams, parts.diagrams)) r.diagrams = parts.diagrams;
+      if (!r.code || !sameCode(r.code, parts.code)) r.code = parts.code;
       notify(r);
       return believable;
     });

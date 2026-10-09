@@ -32,9 +32,21 @@ export interface Diagram {
   question: number;
 }
 
-/** Which diagram of an answer to bring on screen: the `nth` (from 0) with this title. */
+/** A code block Claude wrote in its answer, from claude.ai's API. */
+export interface CodeBlock {
+  /** As the block names it ("python"), or '' if it doesn't. */
+  language: string;
+  code: string;
+  /** Index of the question whose answer has it. */
+  question: number;
+}
+
+/**
+ * Which diagram or code block of an answer to bring on screen: the `nth`
+ * (from 0) with this title (for code: a line of it to find it by).
+ */
 export interface DiagramTarget {
-  kind: DiagramKind;
+  kind: DiagramKind | 'code';
   title: string;
   nth: number;
 }

@@ -1,11 +1,12 @@
-// Finding a diagram from the panel's Diagrams view in the chat, so a jump
-// can land on it rather than on the question above it. Only read, never
-// changed: the highlight is drawn by the panel.
+// Finding a diagram from the panel's Diagrams view, or a code block from
+// its Code view, in the chat, so a jump can land on it rather than on the
+// question above it. Only read, never changed: the highlight is drawn by
+// the panel.
 //
-// The diagram is looked for after the question's message and before the
-// next question's. claude.ai shows a visual in a frame titled
-// "visualize: <its title>"; anything else (an artifact's card) is found by
-// its title text.
+// It is looked for after the question's message and before the next
+// question's. claude.ai shows a visual in a frame titled
+// "visualize: <its title>"; a code block is a <pre> holding the given line;
+// anything else (an artifact's card) is found by its title text.
 import * as S from '../core/selectors';
 import type { DiagramFinder, DiagramTarget } from '../core/types';
 import { safe } from '../core/util';
@@ -30,7 +31,13 @@ const frameTitle = (frame: Element) =>
     .trim()
     .toLowerCase();
 
+const squash = (text: string) => text.replace(/\s+/g, ' ').trim();
+
 function candidates(feed: HTMLElement, target: DiagramTarget): HTMLElement[] {
+  if (target.kind === 'code') {
+    const line = squash(target.title);
+    return q.all(feed, 'pre').filter((pre) => squash(pre.textContent || '').includes(line));
+  }
   const title = target.title.trim().toLowerCase();
   if (target.kind === 'widget') return q.all(feed, 'iframe[title]').filter((f) => frameTitle(f) === title);
   const found: HTMLElement[] = [];
