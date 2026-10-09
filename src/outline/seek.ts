@@ -7,7 +7,7 @@ import { HOST_ID } from '../core/events';
 import type { Entry, View } from '../core/types';
 import { LOG, safe } from '../core/util';
 import { mounted, textConflicts, type ActiveTracker } from './active';
-import { blockText, collect, findLoadEarlierButton, keyOf, plainText, q } from './extract';
+import { collect, findLoadEarlierButton, keyOf, q } from './extract';
 import type { Ledger } from './ledger';
 import {
   containerHeight,
@@ -32,15 +32,20 @@ import {
 // How long the button's click gets to add messages before we conclude it
 // did not load any (on current claude.ai it only scrolls to the first one).
 const LOAD_CLICK_TIMEOUT_MS = 2500;
-// How long to wait for the user to scroll up (which is what makes
-// claude.ai fetch earlier messages) before giving up on the jump.
+// How long to keep trying to get earlier messages loaded before giving up
+// on the jump (a scroll up by the user helps meanwhile).
 const USER_LOAD_WAIT_MS = 60000;
+// Loading by scrolling: how long to wait at the top for a batch (claude.ai
+// takes well under a second), and from how many screens down to come back
+// to the top when none comes.
+const LOAD_ATTEMPT_MS = 1500;
+const TOP_APPROACH_SCREENS = 3;
 // Attempts to get the scroller to its very top before concluding that the
 // page holds it there (claude.ai re-adjusts the scroll while it measures
 // turns, which can undo a scroll to 0 several times in a row).
 const TOP_ATTEMPTS = 12;
 // While waiting for the user's scroll, the page is nudged back to the top
-// this often: claude.ai fetches earlier messages only when at the top.
+// this often: earlier messages load only there.
 const TOP_NUDGE_MS = 700;
 // Jumping to a question that is not in the DOM: scroll to where it is
 // expected, let claude.ai render it, then correct.
@@ -63,24 +68,24 @@ const SETTLE_WAIT_MS = 150;
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const;
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 
+// When the running (or last) jump started: log lines show the time since.
+let jumpStart = 0;
+
 // Diagnostics for jumps; off unless `localStorage['claude-outline-debug']` is set.
 export function seekLog<T>(msg: string, data: T): T {
   try {
     if (localStorage.getItem('claude-outline-debug'))
-      console.debug(LOG, 'seek:', msg, data == null ? '' : JSON.stringify(data));
+      console.debug(
+        LOG,
+        jumpStart ? `+${Math.round(performance.now() - jumpStart)}ms` : '',
+        'seek:',
+        msg,
+        data == null ? '' : JSON.stringify(data)
+      );
   } catch {
     /* storage blocked */
   }
   return data;
-}
-
-// Identifies the first loaded message: the text of the first rendered
-// turn at page position 1 (null while it is not rendered). Changes when
-// earlier messages are loaded, even if the count of loaded ones does not.
-export function firstLoadedKey(theFeed: HTMLElement): string | null {
-  const top = renderedPositions(theFeed)[0];
-  if (!top || top.pos !== 1) return null;
-  return keyOf(plainText(blockText(top.turn))) || `${top.turn.getAttribute('aria-label')}`;
 }
 
 // How many messages the page has loaded (aria-setsize), or null.
@@ -191,6 +196,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
     // way, which only the user's scroll-ups make claude.ai do.
     const firstMounted = items.findIndex((e) => mounted(e));
     seekingUp = !mounted(entry) && (firstMounted === -1 || index < firstMounted);
+    jumpStart = performance.now();
     seekLog('jump', { index, pos: entry.pos, label: entry.label.slice(0, 30), up: seekingUp });
     // Going up to a question not on the page: claude.ai has to load earlier
     // messages first, which can take a while in a long chat.
@@ -301,61 +307,91 @@ export function createSeeker(ctx: SeekContext): Seeker {
     return scrollEl.scrollTop <= 1;
   }
 
-  // At the top of what is loaded, with the question further up. claude.ai
-  // fetches earlier messages only on a real scroll up by the user (a wheel
-  // or trackpad move at the top): programmatic scrolling, synthetic events
-  // and its hidden "Load earlier messages" button (which only scrolls to
-  // the first loaded message) do not make it fetch. So: try the button
-  // (older builds loaded on it), then ask the user to scroll up and wait
-  // until more messages are loaded. True once there are more.
-  async function loadEarlierOrAskUser(theFeed: HTMLElement, container: Element, signal: AbortSignal): Promise<boolean> {
-    // Earlier messages arrived when the page says it has more loaded
-    // (aria-setsize), when turns were added or the feed grew taller, or
-    // when the first loaded message is another one: claude.ai keeps a
-    // window of messages and may drop later ones as earlier ones load, so
-    // the count can stay the same while the window moves up.
-    const before = loadedCount(theFeed);
-    const turns = countTurns(theFeed);
-    const height = feedHeight(theFeed);
-    const first = firstLoadedKey(theFeed);
-    const grown = () =>
-      (loadedCount(theFeed) ?? before) !== before ||
-      countTurns(theFeed) > turns ||
-      feedHeight(theFeed) > height + 1 ||
-      (first !== null && firstLoadedKey(theFeed) !== first);
-    const button = findLoadEarlierButton();
-    seekLog('load earlier', { before, button: !!button });
-    let nudge: ReturnType<typeof setInterval> | undefined;
-    try {
-      if (button) {
-        button.click();
-        await waitForDom(grown, LOAD_CLICK_TIMEOUT_MS, signal);
+  // At the top of what is loaded, with the question further up: gets the
+  // page to load the messages before. True once it has.
+  //
+  // `byCount`: the page numbers only the messages it has loaded (current
+  // claude.ai), so a load shows as a higher count (aria-setsize), and only
+  // that counts: more turns, a taller feed or another text at the top also
+  // come from claude.ai merely laying out what it already has. It loads
+  // when a scroll arrives at the top from further down, not while the
+  // chat sits there or moves a little near it, and its hidden "Load earlier
+  // messages" button only scrolls to the first loaded message. So: wait at
+  // the top, and while nothing comes, go a few screens down and come back.
+  //
+  // Otherwise (older markup, or a page that numbers the whole conversation)
+  // its "Load earlier messages" button loads, and loading shows as more
+  // turns or a taller feed.
+  async function loadEarlier(
+    theFeed: HTMLElement,
+    container: Element,
+    byCount: boolean,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const feed = () => {
+      const live = ctx.feed();
+      return live && live.isConnected ? live : theFeed;
+    };
+    const before = loadedCount(feed());
+    const loaded =
+      byCount && before != null
+        ? await loadByScrolling(feed, before, container, signal)
+        : await loadByButton(feed, container, signal);
+    if (!loaded || signal.aborted || ctx.stopped()) return false;
+    // Let claude.ai lay the new messages out before measuring them.
+    await settle(feed(), SEEK_SETTLE_MS, signal);
+    ctx.rebuild();
+    return true;
+  }
+
+  async function loadByScrolling(
+    feed: () => HTMLElement,
+    before: number,
+    container: Element,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const grown = () => (loadedCount(feed()) ?? before) > before;
+    const scrollEl = scrollElementOf(container);
+    const deadline = performance.now() + USER_LOAD_WAIT_MS;
+    for (let attempt = 0; performance.now() < deadline; attempt++) {
+      if (signal.aborted || ctx.stopped()) return false;
+      if (attempt > 0) {
+        const max = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+        scrollContainerTo(container, Math.min(max, TOP_APPROACH_SCREENS * containerHeight(container)));
+        await settle(feed(), SEEK_SETTLE_MS, signal);
         if (signal.aborted || ctx.stopped()) return false;
-        if (grown()) {
-          await nextFrame();
-          ctx.rebuild();
-          return true;
-        }
+        scrollContainerTo(container, 0);
       }
-      // Keep the page at the top while waiting: claude.ai fetches only
-      // there, and it may move the scroll by itself meanwhile.
-      const scrollEl = scrollElementOf(container);
-      nudge = setInterval(() => {
-        if (scrollEl.scrollTop > 1) scrollContainerTo(container, 0);
-      }, TOP_NUDGE_MS);
+      const grew = await waitForDom(grown, LOAD_ATTEMPT_MS, signal);
+      seekLog('load earlier', { attempt, before, now: loadedCount(feed()), grew });
+      if (grew) return true;
+    }
+    return false;
+  }
+
+  async function loadByButton(feed: () => HTMLElement, container: Element, signal: AbortSignal): Promise<boolean> {
+    const before = loadedCount(feed());
+    const turns = countTurns(feed());
+    const height = feedHeight(feed());
+    const grown = () =>
+      (loadedCount(feed()) ?? before) !== before || countTurns(feed()) > turns || feedHeight(feed()) > height + 1;
+    const button = findLoadEarlierButton();
+    seekLog('load earlier (button)', { before, button: !!button });
+    if (button) {
+      button.click();
+      if (await waitForDom(grown, LOAD_CLICK_TIMEOUT_MS, signal)) return true;
+      if (signal.aborted || ctx.stopped()) return false;
+    }
+    // No button, or it did nothing: wait for the user to scroll up, keeping
+    // the page at the top meanwhile (it may move the scroll by itself).
+    const scrollEl = scrollElementOf(container);
+    const nudge = setInterval(() => {
+      if (scrollEl.scrollTop > 1) scrollContainerTo(container, 0);
+    }, TOP_NUDGE_MS);
+    try {
       const grew = await waitForDom(grown, USER_LOAD_WAIT_MS, signal);
-      seekLog('waited for user scroll', {
-        grew,
-        aborted: signal.aborted,
-        now: loadedCount(theFeed),
-        turns: countTurns(theFeed),
-        first: firstLoadedKey(theFeed)?.slice(0, 20),
-      });
-      if (!grew || signal.aborted || ctx.stopped()) return false;
-      // Let claude.ai lay the new messages out before measuring them.
-      await settle(theFeed, SEEK_SETTLE_MS, signal);
-      ctx.rebuild();
-      return true;
+      seekLog('waited for user scroll', { grew, now: loadedCount(feed()), turns: countTurns(feed()) });
+      return grew;
     } finally {
       clearInterval(nudge);
     }
@@ -427,7 +463,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
       const top = scrollEl.scrollTop;
       if (want < 1) {
         // Not loaded yet: it is above everything on the page. At the top,
-        // claude.ai loads earlier messages (see loadEarlierOrAskUser).
+        // claude.ai loads earlier messages (see loadEarlier).
         // "At the top" also when a scroll to 0 did not move: claude.ai
         // holds the scroller a little below 0 while its sizer settles.
         // Get to the top first (it may take several tries); at the top,
@@ -436,7 +472,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
           next = null;
           continue;
         }
-        if (!(await loadEarlierOrAskUser(f, container, signal))) return seekLog('byPos: load failed/aborted', null);
+        if (!(await loadEarlier(f, container, true, signal))) return seekLog('byPos: load failed/aborted', null);
         // The step budget is per loaded batch: a far question needs
         // many loads, each followed by a fresh search of the new range.
         if (++loads > SEEK_MAX_LOADS) return null;
@@ -456,7 +492,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
         // means above everything loaded (a page that numbers the whole
         // conversation says so only this way): load earlier messages.
         if (top <= 1) {
-          if (!(await loadEarlierOrAskUser(f, container, signal))) return seekLog('byPos: load failed/aborted', null);
+          if (!(await loadEarlier(f, container, false, signal))) return seekLog('byPos: load failed/aborted', null);
           if (++loads > SEEK_MAX_LOADS) return null;
           step = 0;
           next = null;
@@ -557,7 +593,7 @@ export function createSeeker(ctx: SeekContext): Seeker {
             // At the top (or going for the very first question: straight
             // there): the question is in "earlier messages".
             if (scrollEl.scrollTop > 1 && (await reachTop(container, theFeed, signal))) continue;
-            if (!(await loadEarlierOrAskUser(theFeed, container, signal))) return null;
+            if (!(await loadEarlier(theFeed, container, false, signal))) return null;
             if (++loads > SEEK_MAX_LOADS) return null;
             step = 0;
             continue;
