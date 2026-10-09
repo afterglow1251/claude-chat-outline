@@ -76,7 +76,7 @@
     { title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
     { title: 'Search your questions', dur: 7.2 },
     { title: 'Star the ones that matter', dur: 6 },
-    { title: "Reach what isn't loaded yet", dur: 6.6 },
+    { title: "Reach what isn't loaded yet", dur: 7.6 },
     { title: `${mod} Shift O to hide`, dur: 4.4 },
     { title: `${mod} ↑ ↓ for the first and last`, dur: 7.6 },
     { title: 'Picks up where you left off', dur: 6.4 },
@@ -224,16 +224,21 @@
       s.unloadedBelow = 6;
       s.chatPos = 10.2;
       s.active = 10;
-      const click = 1.6;
-      s.cursor = cursorPath(t, [[0, 'starBtn'], [1.3, 'item:0']]);
-      s.hover = t > 1.0 ? 0 : -1;
+      // Question 1 is above what the list shows: scroll the list up to it first.
+      const click = 2.75;
+      const loaded = click + 1.4;
+      s.cursor = cursorPath(t, [[0, 'starBtn'], [0.9, 'list'], [1.9, 'list'], [2.5, 'item:0']]);
+      s.wheel = t > 0.9 && t < 1.9;
+      s.wheelUp = true;
+      s.listUp = inOut(seg(t, 1.0, 1.8));
+      s.hover = t > 2.2 ? 0 : -1;
       s.click = clickAt(t, [click]);
       if (t >= click) {
         s.active = 0;
-        s.loading = seg(t, click, click + 0.25) * (1 - seg(t, 3.0, 3.3));
-        if (t >= 3.0) s.unloadedBelow = 0;
-        s.chatPos = lerp(10.2, 0, inOut(seg(t, 3.0, 4.6)));
-        if (t >= 3.0) s.flash = { index: 0, at: 4.3 };
+        s.loading = seg(t, click, click + 0.25) * (1 - seg(t, loaded, loaded + 0.3));
+        if (t >= loaded) s.unloadedBelow = 0;
+        s.chatPos = lerp(10.2, 0, inOut(seg(t, loaded, loaded + 1.6)));
+        if (t >= loaded) s.flash = { index: 0, at: loaded + 1.3 };
       }
     }
 
