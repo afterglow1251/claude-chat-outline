@@ -11,7 +11,7 @@ import type { CodeBlock, Diagram, DiagramTarget, ListItem } from '../core/types'
 import * as Store from '../data/store';
 import { codeMatches, codeRow, codeStarKey, codeTarget, copyCode } from './code-list';
 import { diagramRow, diagramStarKey, diagramTarget } from './diagram-list';
-import { createListTools, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
+import { createListTools, holdRows, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
 import { createPreviews } from './previews';
 import { questionStarKey } from './question-list';
 import type { StarSet } from './star-set';
@@ -111,6 +111,11 @@ export function createStarredList({
   const message = h('p', { className: 'empty', hidden: '' });
   const scroller = h('div', { className: 'scroll' }, [list, message]);
   const previews = createPreviews(scroller, theme);
+  const held = holdRows(list, () => {
+    previews.release();
+    list.replaceChildren();
+    render();
+  });
   const scrolling = listScroll(scroller, list);
   const tools = createListTools({
     what: 'starred',
@@ -179,6 +184,12 @@ export function createStarredList({
   // Adds the rows newly starred, removes those no longer starred, and keeps
   // the others where they are (in chat order, which never changes).
   function render() {
+    if (held.holding()) {
+      // The new chat's rows take the place of the previous chat's.
+      held.release();
+      previews.release();
+      list.replaceChildren();
+    }
     entries = collect();
     const wanted = new Set(entries.map((e) => e.id));
     for (const [id, li] of rows) {
@@ -215,6 +226,7 @@ export function createStarredList({
 
   // Marks the rows in the answer being read, and shows only those that match the filter.
   function applyFilter() {
+    if (held.holding()) return; // the previous chat's rows: marked as they were
     let shown = 0;
     for (const li of list.children as HTMLCollectionOf<HTMLElement>) {
       const e = byId(li);
@@ -334,10 +346,9 @@ export function createStarredList({
       questions = [];
       diagrams = [];
       blocks = [];
-      previews.release();
+      entries = [];
       rows.clear();
-      list.replaceChildren();
-      render();
+      held.hold();
     },
     focus: () => keys.focusFirst(),
     destroy() {

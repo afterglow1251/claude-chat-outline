@@ -6,7 +6,7 @@
 import { h, icon } from '../core/dom';
 import type { Diagram, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
-import { createListTools, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
+import { createListTools, holdRows, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
 import { createPreviews, type Previews } from './previews';
 import type { StarSet } from './star-set';
 
@@ -106,6 +106,12 @@ export function createDiagramList({ onSelect, onCount, theme, stars, onStarred }
   });
   const element = h('div', { className: 'diagrams' }, [tools.bar, scroller]);
   const unwatchStars = stars.subscribe(() => applyFilter());
+  const held = holdRows(list, () => {
+    previews.release();
+    list.replaceChildren();
+    say('');
+    onCount(null);
+  });
 
   function say(text: string) {
     message.hidden = !text;
@@ -138,6 +144,7 @@ export function createDiagramList({ onSelect, onCount, theme, stars, onStarred }
     // The same diagrams again (the store keeps an unchanged list as is):
     // nothing to redraw, so no preview restarts.
     if (next && next === diagrams) return;
+    held.release();
     diagrams = next;
     previews.release();
     list.replaceChildren(
@@ -195,15 +202,13 @@ export function createDiagramList({ onSelect, onCount, theme, stars, onStarred }
       unsubscribe?.();
       unsubscribe = null;
       diagrams = null;
-      previews.release();
-      list.replaceChildren();
-      say('');
-      onCount(null);
+      held.hold();
     },
     focus: () => keys.focusFirst(),
     setActive(question) {
       if (question === active) return;
       active = question;
+      if (!diagrams) return; // marked when the list is drawn
       // Reading on: the answer's diagrams again. Not when the jump to the
       // picked one just landed in its own answer.
       if (picked !== -1 && diagrams?.[picked]?.question !== question) picked = -1;

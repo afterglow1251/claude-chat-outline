@@ -7,7 +7,7 @@
 import { h, icon } from '../core/dom';
 import type { CodeBlock, DiagramTarget } from '../core/types';
 import * as Store from '../data/store';
-import { createListTools, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
+import { createListTools, holdRows, listKeys, listScroll, markCurrent, patchStar, starButton } from './list-tools';
 import type { StarSet } from './star-set';
 
 const PREVIEW_LINES = 6;
@@ -138,6 +138,11 @@ export function createCodeList({ onSelect, onCount, stars, onStarred }: CodeList
   });
   const element = h('div', { className: 'code' }, [tools.bar, scroller]);
   const unwatchStars = stars.subscribe(() => applyFilter());
+  const held = holdRows(list, () => {
+    list.replaceChildren();
+    say('');
+    onCount(null);
+  });
 
   function say(text: string) {
     message.hidden = !text;
@@ -168,6 +173,7 @@ export function createCodeList({ onSelect, onCount, stars, onStarred }: CodeList
   function draw(next: readonly CodeBlock[] | null) {
     // The same blocks again (the store keeps an unchanged list as is).
     if (next && next === blocks) return;
+    held.release();
     blocks = next;
     list.replaceChildren(
       ...(next ?? []).map((b, i) => h('li', { className: 'code-row', 'data-index': String(i) }, codeRow(b)))
@@ -223,14 +229,13 @@ export function createCodeList({ onSelect, onCount, stars, onStarred }: CodeList
       unsubscribe?.();
       unsubscribe = null;
       blocks = null;
-      list.replaceChildren();
-      say('');
-      onCount(null);
+      held.hold();
     },
     focus: () => keys.focusFirst(),
     setActive(question) {
       if (question === active) return;
       active = question;
+      if (!blocks) return; // marked when the list is drawn
       // Reading on: the answer's blocks again. Not when the jump to the
       // picked one just landed in its own answer.
       if (picked !== -1 && blocks?.[picked]?.question !== question) picked = -1;

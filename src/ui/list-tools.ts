@@ -153,6 +153,36 @@ export function listScroll(scroller: HTMLElement, list: HTMLElement) {
   };
 }
 
+/**
+ * Switching chats: the previous chat's rows stay, inert, until the new
+ * chat's are drawn (at once when they are known), so a view goes from one
+ * list to the other with no blank between. `clear` empties the view if
+ * nothing has come after a moment, so another chat's rows never linger.
+ */
+export function holdRows(list: HTMLElement, clear: () => void, wait = 400) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const end = () => {
+    clearTimeout(timer);
+    list.inert = false;
+  };
+  return {
+    /** Another chat: keep what is on screen for now. */
+    hold() {
+      end();
+      if (!list.children.length) return clear();
+      list.inert = true; // another chat's rows: no clicks on them
+      timer = setTimeout(() => {
+        end();
+        clear();
+      }, wait);
+    },
+    /** The new chat's rows are drawn now. */
+    release: end,
+    /** Another chat's rows are on screen. */
+    holding: () => list.inert,
+  };
+}
+
 /** Marks a row in the answer being read, as the question being read is marked. */
 export function markCurrent(row: HTMLElement, on: boolean): void {
   if (on) row.setAttribute('aria-current', 'true');

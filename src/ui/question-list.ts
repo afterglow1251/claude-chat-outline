@@ -235,6 +235,7 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
 
   function setActive(index: number) {
     active = index;
+    if (swapping) return; // the previous chat's rows: marked once this chat's are in
     markActive();
     const inList = list.children[index]?.querySelector('.item');
     // The same item is reported again after every rebuild (claude.ai loads
@@ -254,9 +255,18 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
     list.inert = false;
     list.replaceChildren();
     renderAll();
-    // claude.ai opens a chat at its end, and so does the list, until the
-    // question being read is known (setActive brings it into view).
-    scroller.scrollTop = scroller.scrollHeight;
+    openAt();
+  }
+
+  // A chat's list opens at the question being read when it is known
+  // already (coming back to a chat), else at its end, where claude.ai
+  // opens the chat (setActive brings the question into view later).
+  function openAt() {
+    const el = list.children[active]?.querySelector('.item');
+    if (el && isVisible(el)) {
+      keepInView(el);
+      inView = active;
+    } else scroller.scrollTop = scroller.scrollHeight;
   }
 
   // Same as scrollIntoView({ block: 'nearest' }) but limited to the list, so
@@ -377,7 +387,7 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
         return;
       }
       renderAll();
-      if (arriving) scroller.scrollTop = scroller.scrollHeight; // as in swapIn()
+      if (arriving) openAt();
     },
     setActive,
     expand,

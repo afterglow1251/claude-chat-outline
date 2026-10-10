@@ -21,6 +21,10 @@ const WIDTH_MIN = 200;
 const WIDTH_MAX = 520;
 const NOTICE_MS = 4000;
 const RIGHT_GAP = 8; // panel distance from the right edge (matches panel.css)
+// Opening a chat, claude.ai scrolls it into place in several steps, and
+// the question being read changes with each. Until it holds still this
+// long, the mark stays where it was, so it doesn't flicker over the rows.
+const SETTLE_MS = 300;
 
 type Layout = 'overlay' | 'push';
 interface Settings {
@@ -397,6 +401,20 @@ export function createPanel({
   const highlights = h('div', { className: 'highlights' });
   const highlighter = createHighlighter(highlights);
   const seekingPill = createSeekingPill(highlights);
+
+  // The question being read, marked in every view; per chat, the last one
+  // marked, so coming back to a chat (in this tab) marks it at once.
+  let chat: string | null = null;
+  let opening = false; // a chat was just opened (see SETTLE_MS)
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  const lastActive = new Map<string, number>();
+  function markActive(index: number) {
+    questions.setActive(index);
+    diagrams.setActive(index);
+    code.setActive(index);
+    starred.setActive(index);
+    if (chat && index >= 0) lastActive.set(chat, index);
+  }
   const resumePill = createResumePill(highlights, onResume, () => onResume(null));
   shadow.append(highlights, panel, tab);
   panel.style.setProperty('--co-top', `${S.layout.panelTop}px`);
@@ -719,10 +737,13 @@ export function createPanel({
     // The question being read, for every view: Diagrams and Code mark what
     // is in its answer.
     setActive(index) {
-      questions.setActive(index);
-      diagrams.setActive(index);
-      code.setActive(index);
-      starred.setActive(index);
+      if (!opening) return markActive(index);
+      if (index < 0) return; // nothing rendered yet: the mark stays as it is
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        opening = false;
+        markActive(index);
+      }, SETTLE_MS);
     },
     highlight: (target, clip) => highlighter.show(target, clip),
     clearHighlight: () => highlighter.clear(),
@@ -732,11 +753,17 @@ export function createPanel({
     offerResume: (offer, clip = null) => (offer ? resumePill.show(offer, clip) : resumePill.hide()),
     markPlace: (key) => questions.markPlace(key),
     setConversation(convId) {
+      chat = convId;
       for (const set of Object.values(stars)) set.setConversation(convId);
       questions.setConversation(convId);
       diagrams.setConversation(convId);
       code.setConversation(convId);
       starred.setConversation(convId);
+      // Back in a chat seen before: marked where it was, from the start.
+      opening = true;
+      clearTimeout(settleTimer);
+      const last = convId ? lastActive.get(convId) : undefined;
+      if (last !== undefined) markActive(last);
       if (state.starred) starred.show();
       else if (state.view === 'diagrams') diagrams.show();
       else if (state.view === 'code') code.show();
@@ -759,6 +786,7 @@ export function createPanel({
       renderStatus();
     },
     destroy() {
+      clearTimeout(settleTimer);
       highlighter.clear();
       seekingPill.hide();
       resumePill.hide();
