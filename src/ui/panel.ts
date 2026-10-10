@@ -513,7 +513,7 @@ export function createPanel({
     let text = '';
     if (state.loading && state.loading.scan != null) text = `Scanning the chat… ${state.loading.scan}%`;
     else if (state.loading) text = `Loading earlier messages… (${state.loading.clicks})`;
-    // Waiting for a chat to load needs no words: the list fades in when ready.
+    // Waiting for a chat to load needs no words: the list shows when ready.
     else if (state.status !== 'ok' && state.status !== 'no-feed') text = STATUS_TEXT[state.status];
     else if (state.notice) text = state.notice;
     else if (state.incomplete) text = state.canLoadEarlier ? HINT_LOAD_EARLIER : HINT_SCROLL;
@@ -535,7 +535,7 @@ export function createPanel({
     state.incomplete = result.incomplete;
     // Nothing known yet for this chat: an empty list and no count.
     const pending = result.status === 'no-feed' && !result.items.length;
-    questions.render(result.items, result.settled);
+    questions.render(result.items);
     starred.setQuestions(result.items);
     const n = result.items.length;
     const more = state.incomplete ? '+' : '';

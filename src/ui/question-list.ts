@@ -9,19 +9,13 @@ import type { StarSet } from './star-set';
 
 /** A question's star survives reloads and edits elsewhere: kept by its matching key. */
 export const questionStarKey = (item: ListItem, index: number) => item.key || `#${index}`;
-// Transitions are opacity only: nothing shifts, the layout is final from the
-// first frame. Switching chats fades the old list out (keeping its rows
-// until it is invisible) and fades the new chat's list in once known.
-const FADE_OUT_MS = 120;
-const FADE_IN_MS = 180;
+// Switching chats goes from one list straight to the other, with no fade
+// and no blank between: the previous chat's rows stay (inert) until this
+// one's list arrives, at once when it is known already. Only if it takes
+// longer than this are they cleared, so another chat's questions never
+// linger.
+const SWAP_WAIT_MS = 400;
 const ROW_IN_MS = 220;
-// On opening a chat the list is held invisible until it is the final one
-// (from the API: a cached or page-only list changes once that arrives) and
-// the active question is known, so it appears once, already scrolled to
-// the right place. A long chat freezes the page for seconds while it is
-// rendered, so this is only a last resort against a chat that never
-// renders at all, long enough never to fire before the active question.
-const REVEAL_WAIT_MS = 30000;
 
 function fade(el: Element, from: number, to: number, duration: number, fill: FillMode = 'none'): Animation {
   return el.animate([{ opacity: from }, { opacity: to }], { duration, easing: 'ease-out', fill });
@@ -35,7 +29,7 @@ const ICON_SEARCH = 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM20 20l-3.6-3.6';
 export interface QuestionList {
   /** Filter row + scrolling list, to be placed in the panel. */
   readonly element: HTMLElement;
-  render(items: readonly ListItem[], settled: boolean): void;
+  render(items: readonly ListItem[]): void;
   setActive(index: number): void;
   /**
    * Shows the question's full text under its row, with a note that Claude
@@ -68,12 +62,8 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
   let query = '';
   let active = -1;
   let inView = -1; // the active item the list was last scrolled to
-  let swapping = false; // the previous chat's list is fading out
-  let currentFade: Animation | null = null;
-  let awaitingActive = false; // list drawn but hidden until it is final and the active item is known
-  let settled = false; // the list is the final one (see REVEAL_WAIT_MS)
-  let activeOfFinal = false; // the active item was computed for the final list
-  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  let swapping = false; // the rows on screen are the previous chat's (see SWAP_WAIT_MS)
+  let swapTimer: ReturnType<typeof setTimeout> | undefined;
 
   const input = h('input', {
     type: 'search',
@@ -209,7 +199,7 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
   function renderList() {
     const lis = list.children;
     // Rows added to a list already on screen (a question you just sent)
-    // fade in; a whole list arriving fades in as one (see reveal()).
+    // fade in; a whole list arriving is just there.
     const growing = lis.length > 0;
     items.forEach((_, i) => {
       if (!lis[i]) {
@@ -255,17 +245,18 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
       inView = index;
     }
     if (!element.contains(getRootFocus())) updateRoving();
-    if (settled) activeOfFinal = true;
-    if (awaitingActive && settled && index >= 0) reveal();
   }
 
-  // Shows a list held back for its active item (see REVEAL_WAIT_MS).
-  function reveal() {
-    if (!awaitingActive) return;
-    awaitingActive = false;
-    clearTimeout(revealTimer);
-    list.style.opacity = '';
-    if (items.length) fade(list, 0, 1, FADE_IN_MS);
+  // The new chat's rows in place of the previous chat's.
+  function swapIn() {
+    swapping = false;
+    clearTimeout(swapTimer);
+    list.inert = false;
+    list.replaceChildren();
+    renderAll();
+    // claude.ai opens a chat at its end, and so does the list, until the
+    // question being read is known (setActive brings it into view).
+    scroller.scrollTop = scroller.scrollHeight;
   }
 
   // Same as scrollIntoView({ block: 'nearest' }) but limited to the list, so
@@ -378,66 +369,38 @@ export function createQuestionList({ onSelect, stars, onStarred }: QuestionListO
 
   return {
     element,
-    render(next, isSettled) {
+    render(next) {
       const arriving = !items.length && next.length > 0;
       items = next;
-      if (isSettled && !settled) activeOfFinal = false; // recomputed for this list next frame
-      settled = isSettled;
-      if (swapping) return; // drawn once the old list has faded out
-      renderAll();
-      if (awaitingActive) {
-        if (arriving) {
-          // Drawn, but shown once final and the active question is known.
-          list.style.opacity = '0';
-          clearTimeout(revealTimer);
-          revealTimer = setTimeout(reveal, REVEAL_WAIT_MS);
-        }
-        if (settled && activeOfFinal && active >= 0) reveal();
+      if (swapping) {
+        if (next.length) swapIn(); // the previous chat's rows stay until there is something
         return;
       }
-      if (arriving) fade(list, 0, 1, FADE_IN_MS);
+      renderAll();
+      if (arriving) scroller.scrollTop = scroller.scrollHeight; // as in swapIn()
     },
     setActive,
     expand,
     markPlace,
-    setConversation(id) {
+    setConversation() {
       placeKey = null;
       query = '';
       input.value = '';
       active = -1;
       inView = -1;
       expanded = -1;
-      clearTimeout(revealTimer);
-      list.style.opacity = '';
-      awaitingActive = !!id;
-      settled = false;
-      activeOfFinal = false;
-      const visible = list.children.length > 0 && isVisible(scroller);
       items = [];
-      if (!visible) {
-        list.replaceChildren();
+      clearTimeout(swapTimer);
+      if (!list.children.length) {
+        // Nothing of another chat on screen.
+        swapping = false;
+        list.inert = false;
         renderAll();
-      } else {
-        swapping = true;
-        const out = fade(scroller, 1, 0, FADE_OUT_MS, 'forwards');
-        const swap = () => {
-          if (out !== currentFade) return; // a newer switch took over
-          swapping = false;
-          list.replaceChildren();
-          scroller.scrollTop = 0;
-          renderAll();
-          out.cancel();
-          if (awaitingActive && items.length) {
-            // Held until the active question is known (see render()).
-            list.style.opacity = '0';
-            clearTimeout(revealTimer);
-            revealTimer = setTimeout(reveal, REVEAL_WAIT_MS);
-          }
-          fade(scroller, 0, 1, FADE_IN_MS);
-        };
-        currentFade = out;
-        out.finished.then(swap, swap);
+        return;
       }
+      swapping = true;
+      list.inert = true; // the rows are another chat's: no clicks on them
+      swapTimer = setTimeout(swapIn, SWAP_WAIT_MS);
     },
     focus() {
       // The rows were hidden while the panel was collapsed, so the Tab stop
