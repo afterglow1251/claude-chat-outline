@@ -12,6 +12,9 @@ import { warnOnce } from '../core/util';
 export const CACHE_PREFIX = 'outline-cache:';
 const CACHE_MAX_CHATS = 200;
 const CACHE_MAX_AGE_MS = 90 * 24 * 3600 * 1000;
+// What the cached questions may take in chrome.storage.local, in characters
+// (it holds 10 MB in all): stars, places and settings always have room.
+const CACHE_BUDGET = 3_000_000;
 const API_TIMEOUT_MS = 10000;
 
 export function conversationId(pathname: string): string | null {
@@ -40,20 +43,47 @@ export function storageGet(keys: string | StorageValues | null): Promise<Storage
   });
 }
 
-export function storageSet(values: StorageValues): void {
-  try {
-    chrome.storage.local.set(values);
-  } catch (err) {
-    warnOnce('storage set', err);
-  }
+function write(values: StorageValues): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.set(values, () => resolve(!chrome.runtime?.lastError));
+    } catch (err) {
+      warnOnce('storage set', err);
+      resolve(false);
+    }
+  });
 }
 
-function storageRemove(keys: string[]): void {
-  try {
-    if (keys.length) chrome.storage.local.remove(keys);
-  } catch (err) {
-    warnOnce('storage remove', err);
-  }
+// The last write asked for each key, so a retry never puts back a value
+// a newer write has replaced meanwhile.
+const lastWrite = new Map<string, number>();
+let writeSeq = 0;
+
+// A write that fails (chrome.storage.local full) makes room in the cache,
+// which can always be read again from claude.ai, and is tried once more:
+// a star is never what gives way.
+export function storageSet(values: StorageValues): void {
+  const seq = ++writeSeq;
+  const keys = Object.keys(values);
+  for (const k of keys) lastWrite.set(k, seq);
+  void write(values).then(async (ok) => {
+    if (ok) return;
+    await pruneCache(CACHE_BUDGET / 3);
+    if (keys.some((k) => lastWrite.get(k) !== seq)) return; // superseded
+    if (!(await write(values))) warnOnce('storage full: not saved', keys);
+  });
+}
+
+function storageRemove(keys: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      if (!keys.length) return resolve();
+      chrome.storage.local.remove(keys, () => resolve());
+    } catch (err) {
+      warnOnce('storage remove', err);
+      resolve();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +109,7 @@ export async function loadStars(convId: string, scope: StarScope = 'questions'):
 export function saveStars(convId: string, keys: readonly string[], scope: StarScope = 'questions'): void {
   const key = starsKey(convId, scope);
   if (keys.length) storageSet({ [key]: [...keys] });
-  else storageRemove([key]);
+  else void storageRemove([key]);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,17 +135,24 @@ export function savePlace(convId: string, questionKey: string): void {
 }
 
 // Keeps the cache and the places bounded: the most recent chats, none
-// older than 90 days.
-export async function pruneCache(): Promise<void> {
+// older than 90 days, and the cached questions within `budget` characters
+// (the most recent kept).
+export async function pruneCache(budget = CACHE_BUDGET): Promise<void> {
   const all = await storageGet(null);
   const now = Date.now();
+  const drop: string[] = [];
   for (const prefix of [CACHE_PREFIX, PLACE_PREFIX]) {
     const records = Object.keys(all)
       .filter((k) => k.startsWith(prefix))
       .map((k) => ({ k, t: (all[k] as { t?: number } | null)?.t || 0 }))
       .toSorted((a, b) => b.t - a.t);
-    storageRemove(records.filter((r, i) => i >= CACHE_MAX_CHATS || now - r.t > CACHE_MAX_AGE_MS).map((r) => r.k));
+    let used = 0;
+    records.forEach((r, i) => {
+      if (prefix === CACHE_PREFIX) used += JSON.stringify(all[r.k]).length;
+      if (i >= CACHE_MAX_CHATS || now - r.t > CACHE_MAX_AGE_MS || used > budget) drop.push(r.k);
+    });
   }
+  await storageRemove(drop);
 }
 
 // ---------------------------------------------------------------------------

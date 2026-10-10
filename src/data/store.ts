@@ -16,10 +16,22 @@
 import type { ApiQuestion, CodeBlock, Diagram } from '../core/types';
 import { safe } from '../core/util';
 import { watchConversations } from './intercept';
-import { CACHE_PREFIX, fetchConversationParts, storageGet, storageSet } from './sources';
+import { CACHE_PREFIX, fetchConversationParts, pruneCache, storageGet, storageSet } from './sources';
 
-const MEMORY_MAX_CHATS = 20;
+// Memory: what all the chats may hold together, in characters (strings take
+// two bytes each, so about 8 MB). Past it, the chats used least recently
+// give up their diagrams and code first (read again when those views open),
+// and their questions, so coming back stays instant, only after. A chat
+// open now, or being read from claude.ai, always stays whole.
+const MEMORY_BUDGET = 4_000_000;
+const MEMORY_MAX_CHATS = 50;
 const STORED_TEXT_MAX = 400; // characters kept per question (tooltip text)
+// One chat's questions in chrome.storage: a huge chat keeps shorter texts.
+const STORED_CHAT_MAX = 150_000;
+const STORED_TEXT_SHORT = 80;
+// The cache in chrome.storage is pruned on every page load, and after this
+// many writes in a tab that stays open.
+const PRUNE_EVERY_WRITES = 25;
 // Opening a chat, claude.ai loads it itself, which checks a cached list for
 // free. Our own request is made only if that has not come by then.
 const REVALIDATE_AFTER_MS = 5000;
@@ -56,6 +68,7 @@ interface Chat extends State {
   revalidateTimer: ReturnType<typeof setTimeout> | undefined;
   listeners: Set<Listener>;
   storedJson: string; // what was last written, so an unchanged list is not written again
+  size: number; // characters held (see MEMORY_BUDGET)
 }
 
 /** As kept in chrome.storage.local. Records written before `api` and `pos` existed are page lists. */
@@ -87,16 +100,50 @@ function chat(id: string): Chat {
       revalidateTimer: undefined,
       listeners: new Set(),
       storedJson: '',
+      size: 0,
     };
   }
   memory.set(id, r);
-  // Forget the least recently used chats, but never one that is open or
-  // being asked for.
-  for (const [key, old] of memory) {
-    if (memory.size <= MEMORY_MAX_CHATS) break;
-    if (key !== id && !old.listeners.size && !old.request) memory.delete(key);
-  }
+  evict(id);
   return r;
+}
+
+function measure(r: Chat): number {
+  let n = 0;
+  for (const q of r.questions?.items ?? []) n += typeof q === 'string' ? q.length : q.text.length;
+  for (const d of r.diagrams ?? []) n += d.source.length + d.title.length;
+  for (const c of r.code ?? []) n += c.code.length;
+  return n;
+}
+
+// Keeps memory within MEMORY_BUDGET and MEMORY_MAX_CHATS, least recently
+// used first (see MEMORY_BUDGET). `keep`: the chat just used.
+function evict(keep: string) {
+  const held = (key: string, c: Chat) => key === keep || c.listeners.size > 0 || !!c.request;
+  let total = 0;
+  for (const c of memory.values()) total += c.size;
+  for (const [key, c] of memory) {
+    if (total <= MEMORY_BUDGET) break;
+    if (held(key, c) || (!c.diagrams && !c.code)) continue;
+    c.diagrams = null;
+    c.code = null;
+    c.fetchedAt = null; // so they are read again
+    const size = measure(c);
+    total -= c.size - size;
+    c.size = size;
+  }
+  for (const [key, c] of memory) {
+    if (memory.size <= MEMORY_MAX_CHATS && total <= MEMORY_BUDGET) break;
+    if (held(key, c)) continue;
+    memory.delete(key);
+    total -= c.size;
+  }
+}
+
+// After what the chat holds changed.
+function resize(r: Chat) {
+  r.size = measure(r);
+  evict(r.id);
 }
 
 function notify(r: Chat) {
@@ -133,29 +180,39 @@ function readStored(r: Chat): Promise<void> {
       r.questions = { fromApi: false, items: texts, complete: !!v.complete };
     }
     r.source = 'storage';
+    resize(r);
     // For a reader that stopped waiting for it.
     notify(r);
   });
   return r.stored;
 }
 
+let writes = 0;
+
 // Written once per page load even if unchanged, which marks the chat as
 // recently opened (pruneCache keeps the most recent).
 function writeStored(r: Chat) {
   const q = r.questions;
   if (!q) return;
-  const value = q.fromApi
-    ? {
-        items: q.items.map((x) => x.text.slice(0, STORED_TEXT_MAX)),
-        pos: q.items.map((x) => x.pos),
-        api: true,
-        complete: true,
-      }
-    : { items: q.items.map((t) => t.slice(0, STORED_TEXT_MAX)), complete: q.complete };
-  const json = JSON.stringify(value);
+  const record = (max: number) =>
+    q.fromApi
+      ? {
+          items: q.items.map((x) => x.text.slice(0, max)),
+          pos: q.items.map((x) => x.pos),
+          api: true,
+          complete: true,
+        }
+      : { items: q.items.map((t) => t.slice(0, max)), complete: q.complete };
+  let value = record(STORED_TEXT_MAX);
+  let json = JSON.stringify(value);
+  if (json.length > STORED_CHAT_MAX) {
+    value = record(STORED_TEXT_SHORT);
+    json = JSON.stringify(value);
+  }
   if (json === r.storedJson) return;
   r.storedJson = json;
   storageSet({ [CACHE_PREFIX + r.id]: { t: Date.now(), ...value } });
+  if (++writes % PRUNE_EVERY_WRITES === 0) void pruneCache();
 }
 
 // ----- updates from claude.ai ------------------------------------------------
@@ -168,6 +225,7 @@ function takeQuestions(r: Chat, items: ApiQuestion[], source: Source): boolean {
   if (!old || !old.fromApi || !sameQuestions(old.items, items)) r.questions = { fromApi: true, items };
   r.source = source;
   r.questionsAt = performance.now();
+  resize(r);
   writeStored(r);
   return true;
 }
@@ -227,6 +285,7 @@ export function refresh(convId: string, maxAge = 0): Promise<boolean> {
       const believable = takeQuestions(r, parts.questions, 'api');
       if (!r.diagrams || !sameDiagrams(r.diagrams, parts.diagrams)) r.diagrams = parts.diagrams;
       if (!r.code || !sameCode(r.code, parts.code)) r.code = parts.code;
+      resize(r);
       notify(r);
       return believable;
     });
@@ -255,6 +314,7 @@ export function savePageList(convId: string, texts: readonly string[], complete:
     if (r.questions?.fromApi) return;
     r.questions = { fromApi: false, items: texts, complete };
     r.source = 'page';
+    resize(r);
     writeStored(r);
   });
 }
