@@ -86,22 +86,35 @@
     },
   };
   const DRAWN = CHAT.map((m, i) => ({ ...m, i })).filter((m) => m.diagram);
+  // The code blocks Claude wrote, with a language for the Code view.
+  const CODED = CHAT.map((m, i) => ({ ...m, i })).filter((m) => m.code);
+  const LANG = { 2: 'sql', 6: 'python' };
+  // What the Starred overview can show, in chat order: a diagram, a
+  // question, a code block, a question (whichever of them are starred).
+  const STARRABLE = [
+    { kind: 'diagram', i: 2, d: 1 },
+    { kind: 'question', i: 4 },
+    { kind: 'code', i: 6, c: 1 },
+    { kind: 'question', i: 8 },
+  ];
 
   // ----- the timeline --------------------------------------------------------
 
   const mod = isMac ? '⌘' : 'Ctrl';
-  // In play order. Each chapter starts where the one before it ends.
+  // In play order. Each chapter starts where the one before it ends: the
+  // chat, the stars, the view and the cursor carry over, so the
+  // whole demo is one take. The last one ends as the first begins (panel
+  // hidden, question 10), so the loop has no seam either.
   const CHAPTERS = [
-    { id: 'panel', title: 'Every question in one panel', dur: 4.5 },
-    { id: 'click', title: 'Click to jump', dur: 5.9 },
-    { id: 'follow', title: 'Follows as you read', dur: 4.6 },
-    { id: 'search', title: 'Search your questions', dur: 7.2 },
-    { id: 'star', title: 'Star the ones that matter', dur: 6 },
-    { id: 'unloaded', title: "Reach what isn't loaded yet", dur: 8.0 },
-    { id: 'step', title: `${mod} Shift ↑ ↓ between questions`, dur: 6.6 },
-    { id: 'hide', title: `${mod} Shift O to hide`, dur: 4.4 },
-    { id: 'theme', title: 'Light and dark', dur: 4.2 },
-    { id: 'diagrams', title: 'See every diagram', dur: 7.6 },
+    { id: 'panel', title: 'Every question in one panel', dur: 3.4 },
+    { id: 'click', title: 'Click to jump, then read on', dur: 5.6 },
+    { id: 'star', title: 'Star the ones that matter', dur: 3.6 },
+    { id: 'search', title: 'Search your questions', dur: 4.6 },
+    { id: 'unloaded', title: "Reach what isn't loaded yet", dur: 5.2 },
+    { id: 'diagrams', title: 'Every diagram, with a preview', dur: 5.4 },
+    { id: 'code', title: 'Every code block, one click to copy', dur: 5.8 },
+    { id: 'starred', title: 'Everything starred, in one list', dur: 4.4 },
+    { id: 'hide', title: `${mod} Shift O to hide`, dur: 3.8 },
   ];
   let acc = 0;
   for (const c of CHAPTERS) {
@@ -128,188 +141,231 @@
   }
   const clickAt = (t, times) => times.find((c) => t >= c && t < c + 0.45);
 
-  // The state of the scene at time t.
-  function stateAt(T) {
-    const ci = chapterAt(T);
-    const id = CHAPTERS[ci].id;
-    const t = T - CHAPTERS[ci].start;
-    const s = {
-      chapter: ci,
-      panel: 1, // 1 shown, 0 collapsed to the tab
+  // The state of the scene at time t: the story so far, played chapter by
+  // chapter up to t. Each chapter changes what it is about and leaves the
+  // rest as the one before left it.
+  function initial() {
+    return {
+      chapter: 0,
+      panel: 0, // 1 shown, 0 collapsed to the tab
       listIn: 1, // the list's entrance
       chatPos: 9.25, // question at the top of the chat, fractional
       active: 9,
       filter: '',
       focusFilter: false,
       stars: [],
-      starOnly: false,
-      hover: -1,
       unloadedBelow: 0, // questions before this index aren't loaded
-      loading: 0,
+      diagrams: false, // the panel shows the Diagrams view
+      code: false, // the panel shows the Code view
+      starred: false, // the Starred overview is open
+      previews: 0, // the diagrams' previews: 0 shimmering to 1 drawn
+      toDiagram: null, // { index, p }: the chat scrolled on to diagram `index` (p: 0 to 1)
+      toCode: null, // { index, p }: the same for a code block
+      dStars: [], // starred diagrams (indices in DRAWN)
+      cStars: [], // starred code blocks (indices in CODED)
+      cursorEnd: 'rest', // where the cursor was left
+    };
+  }
+
+  // What lasts only while it happens: reset at the start of every chapter.
+  function moment(s) {
+    Object.assign(s, {
+      hover: -1,
+      dHover: -1, // the diagram row under the cursor
+      cHover: -1,
+      sHover: -1,
+      cCopied: 0, // the copy button of code row 1 shows "copied"
       keys: 0,
+      keysDown: false,
       caps: [mod, '⇧', 'O'], // the keys shown
-      dark: false,
       listUp: 0, // 0: the list follows the active row; 1: scrolled to its top
-      cursor: cursorPath(0, [[0, 'rest']]),
+      wheel: false,
+      wheelUp: false,
+      loading: 0,
       click: undefined,
       flash: null, // { index, at }: the jump highlight, started at chapter time `at`
-      diagrams: false, // the panel shows the Diagrams view
-      previews: 0, // the diagrams' previews: 0 shimmering to 1 drawn
-      dHover: -1, // the diagram row under the cursor
-      toDiagram: null, // { index, p }: the chat scrolling to diagram `index` (p: 0 to 1)
-      dFlash: null, // { index, at }: the highlight on a diagram in the chat
-    };
+      dFlash: null,
+      cFlash: null,
+    });
+  }
 
-    if (id === 'panel') {
-      s.panel = out(seg(t, 0.3, 1.1));
-      s.listIn = seg(t, 0.8, 2.4);
-      s.cursor = cursorPath(t, [[0, 'rest']]);
+  // The cursor moves from where the last chapter left it.
+  function move(s, t, keys) {
+    const path = [[0, s.cursorEnd], ...keys];
+    s.cursor = cursorPath(t, path);
+    s.cursorEnd = path[path.length - 1][1];
+  }
+
+  // A shortcut pressed at `at`: its keys show a moment around it.
+  function press(s, t, at, caps) {
+    if (t >= at - 0.4 && t < at + 0.5) {
+      s.keys = 1;
+      s.caps = caps;
     }
+    if (t >= at - 0.1 && t < at + 0.2) s.keysDown = true;
+  }
 
-    if (id === 'click') {
+  const STORY = {
+    panel(s, t) {
+      // ⌘⇧O: the panel slides in and the list fills.
+      move(s, t, []);
+      press(s, t, 0.5, [mod, '⇧', 'O']);
+      s.panel = out(seg(t, 0.5, 1.0));
+      s.listIn = seg(t, 0.9, 2.3);
+    },
+
+    click(s, t) {
       // Question 3 is above what the list shows (it follows question 10):
-      // scroll the list up to it first, then click it.
-      s.cursor = cursorPath(t, [[0.2, 'rest'], [1.0, 'list'], [2.0, 'list'], [2.6, 'item:2']]);
-      s.wheel = t > 1.0 && t < 2.0;
-      s.wheelUp = true;
-      s.listUp = inOut(seg(t, 1.1, 1.9));
-      s.hover = t > 2.3 ? 2 : -1;
-      const click = 2.85;
+      // scroll the list up to it, click, then read on with the list
+      // following, down to question 5.
+      const click = 2.0;
+      const read = 3.5;
+      move(s, t, [[0.6, 'list'], [1.4, 'list'], [1.8, 'item:2'], [2.3, 'item:2'], [2.9, 'chat']]);
+      s.wheel = (t > 0.6 && t < 1.4) || (t > read - 0.2 && t < 5.4);
+      s.wheelUp = t < read;
+      s.listUp = inOut(seg(t, 0.7, 1.3));
+      s.hover = t > 1.6 && t < 2.6 ? 2 : -1;
       s.click = clickAt(t, [click]);
       if (t >= click) {
         s.active = 2;
-        s.chatPos = lerp(9.25, 2, inOut(seg(t, click + 0.05, click + 1.3)));
-        s.flash = { index: 2, at: click + 1.1 };
+        s.chatPos = lerp(9.25, 2, inOut(seg(t, click + 0.05, click + 1.0)));
+        s.flash = { index: 2, at: click + 0.8 };
       }
-    }
-
-    if (id === 'follow') {
-      s.chatPos = lerp(2, 7.7, inOut(seg(t, 0.4, 4.2)));
-      s.active = Math.floor(s.chatPos + 0.2);
-      s.cursor = cursorPath(t, [[0, 'item:2'], [0.8, 'chat']]);
-      s.wheel = t > 0.6 && t < 4.3;
-    }
-
-    if (id === 'step') {
-      // From question 1: down, down again, back up. Each jump flashes, like a click.
-      s.stars = [4, 8];
-      s.cursor = cursorPath(t, [[0, 'item:0'], [0.6, 'chat']]);
-      const presses = [
-        [0.8, '↓', 0, 1],
-        [2.4, '↓', 1, 2],
-        [4.0, '↑', 2, 1],
-      ];
-      const shown = presses.find(([at]) => t >= at - 0.4 && t < at + 0.5);
-      s.keys = shown ? 1 : 0;
-      s.caps = [mod, '⇧', shown ? shown[1] : '↑'];
-      s.keysDown = presses.some(([at]) => t >= at - 0.1 && t < at + 0.2);
-      const done = presses.filter(([at]) => t >= at);
-      const now = done[done.length - 1];
-      if (now) {
-        const [at, , from, to] = now;
-        s.chatPos = lerp(from, to, inOut(seg(t, at + 0.05, at + 0.7)));
-        s.active = to;
-        s.flash = { index: to, at: at + 0.6 };
-      } else {
-        s.chatPos = 0;
-        s.active = 0;
+      if (t >= read) {
+        s.chatPos = lerp(2, 4, inOut(seg(t, read, 5.4)));
+        s.active = Math.floor(s.chatPos + 0.2);
       }
-    }
+    },
 
-    if (id === 'search') {
-      s.chatPos = 7.7;
-      s.active = 7;
-      const typeStart = 1.4;
-      const word = 'i love claude';
-      s.cursor = cursorPath(t, [[0, 'chat'], [1.0, 'filter'], [3.7, 'filter'], [4.5, 'item:4']]);
-      s.click = clickAt(t, [1.1, 4.7]);
-      s.focusFilter = t >= 1.1;
-      s.filter = word.slice(0, Math.floor(seg(t, typeStart, typeStart + 1.8) * word.length + 0.001));
-      s.hover = t > 4.2 ? 4 : -1;
-      if (t >= 4.7) {
-        s.active = 4;
-        s.chatPos = lerp(7.7, 4, inOut(seg(t, 4.75, 5.8)));
-        s.flash = { index: 4, at: 5.4 };
+    star(s, t) {
+      // Star the question being read, and one further down.
+      move(s, t, [[0.6, 'star:4'], [1.0, 'star:4'], [1.5, 'star:8'], [2.1, 'star:8'], [2.8, 'list']]);
+      s.click = clickAt(t, [0.75, 1.75]);
+      s.hover = t > 0.3 && t < 1.3 ? 4 : t >= 1.3 && t < 2.4 ? 8 : -1;
+      s.stars = [...(t >= 0.75 ? [4] : []), ...(t >= 1.75 ? [8] : [])];
+    },
+
+    search(s, t) {
+      // Type a word, pick a match, Esc for the whole list again.
+      const word = 'redis';
+      const pick = 2.6;
+      const esc = 4.0;
+      move(s, t, [[0.6, 'filter'], [1.9, 'filter'], [2.4, 'item:8'], [2.8, 'item:8'], [3.3, 'chat']]);
+      s.click = clickAt(t, [0.7, pick]);
+      s.focusFilter = t >= 0.7 && t < esc;
+      s.filter = t >= esc ? '' : word.slice(0, Math.floor(seg(t, 0.9, 1.6) * word.length + 0.001));
+      s.hover = t > 2.2 && t < 3.0 ? 8 : -1;
+      if (t >= pick) {
+        s.active = 8;
+        s.chatPos = lerp(4, 8, inOut(seg(t, pick + 0.05, pick + 1.0)));
+        s.flash = { index: 8, at: pick + 0.8 };
       }
-    }
+      press(s, t, esc, ['esc']);
+    },
 
-    if (id === 'star') {
-      s.chatPos = 4;
-      s.active = 4;
-      s.cursor = cursorPath(t, [[0, 'item:4'], [1.0, 'star:4'], [1.6, 'star:4'], [2.4, 'star:8'], [3.1, 'star:8'], [3.9, 'starBtn']]);
-      s.click = clickAt(t, [1.15, 2.55, 4.1]);
-      s.hover = t < 1.8 ? 4 : t < 3.3 ? 8 : -1;
-      s.stars = [...(t >= 1.15 ? [4] : []), ...(t >= 2.55 ? [8] : [])];
-      s.starOnly = t >= 4.1;
-    }
-
-    if (id === 'unloaded') {
-      // A long chat: the early questions aren't on the page.
-      s.stars = [4, 8];
+    unloaded(s, t) {
+      // A long chat: the early questions aren't on the page. The list
+      // has them anyway: scroll it up to question 1 and click.
       s.unloadedBelow = 6;
-      s.chatPos = 10.2;
-      s.active = 10;
-      // Star filter off: every question again, the list at the current one.
-      // Question 1 is above what it shows: scroll the list up to it, then click.
-      const filterOff = 0.4;
-      const click = 3.15;
-      const loaded = click + 1.4;
-      s.starOnly = t < filterOff;
-      s.cursor = cursorPath(t, [[0, 'starBtn'], [1.2, 'list'], [2.3, 'list'], [2.9, 'item:0']]);
-      s.wheel = t > 1.2 && t < 2.3;
+      const click = 1.9;
+      const loaded = click + 1.0;
+      move(s, t, [[0.5, 'list'], [1.3, 'list'], [1.7, 'item:0']]);
+      s.wheel = t > 0.5 && t < 1.3;
       s.wheelUp = true;
-      s.listUp = inOut(seg(t, 1.3, 2.2));
-      s.hover = t > 2.6 ? 0 : -1;
-      s.click = clickAt(t, [filterOff, click]);
+      s.listUp = inOut(seg(t, 0.6, 1.2));
+      s.hover = t > 1.5 ? 0 : -1;
+      s.click = clickAt(t, [click]);
       if (t >= click) {
         s.active = 0;
-        s.loading = seg(t, click, click + 0.25) * (1 - seg(t, loaded, loaded + 0.3));
+        s.loading = seg(t, click, click + 0.2) * (1 - seg(t, loaded, loaded + 0.25));
         if (t >= loaded) s.unloadedBelow = 0;
-        s.chatPos = lerp(10.2, 0, inOut(seg(t, loaded, loaded + 1.6)));
-        if (t >= loaded) s.flash = { index: 0, at: loaded + 1.3 };
+        s.chatPos = lerp(8, 0, inOut(seg(t, loaded, loaded + 1.2)));
+        if (t >= loaded) s.flash = { index: 0, at: loaded + 1.0 };
       }
-    }
+    },
 
-    if (id === 'hide') {
-      s.stars = [4, 8];
-      s.chatPos = 1;
-      s.active = 1;
-      s.cursor = cursorPath(t, [[0, 'chat']]);
-      const hide = 0.9;
-      const show = 2.9;
-      s.keys = t >= hide - 0.4 && t < hide + 0.5 ? 1 : t >= show - 0.4 && t < show + 0.5 ? 1 : 0;
-      s.keysDown = (t >= hide - 0.1 && t < hide + 0.2) || (t >= show - 0.1 && t < show + 0.2);
-      s.panel = 1 - out(seg(t, hide, hide + 0.45)) + out(seg(t, show, show + 0.45));
-    }
-
-    if (id === 'diagrams') {
-      // Pick Diagrams in the header, watch the previews draw, jump to one.
-      s.stars = [4, 8];
-      s.dark = true;
-      s.chatPos = 9;
-      s.active = 9;
-      const open = 1.5;
-      const pick = 3.9;
-      s.cursor = cursorPath(t, [[0, 'chat'], [1.1, 'vopt:1'], [2.7, 'vopt:1'], [3.6, 'drow:1']]);
-      s.click = clickAt(t, [open, pick]);
+    diagrams(s, t) {
+      // Open Diagrams, watch the previews draw, star one, jump to it.
+      const open = 0.7;
+      const star = 1.9;
+      const pick = 2.9;
+      move(s, t, [[0.5, 'vopt:1'], [1.2, 'vopt:1'], [1.7, 'dstar:1'], [2.2, 'dstar:1'], [2.7, 'drow:1']]);
+      s.click = clickAt(t, [open, star, pick]);
       s.diagrams = t >= open;
-      s.previews = out(seg(t, open + 0.8, open + 1.2));
-      s.dHover = t > 3.3 ? 1 : -1;
+      s.previews = out(seg(t, open + 0.4, open + 0.8));
+      s.dHover = t > 1.4 ? 1 : -1;
+      s.dStars = t >= star ? [1] : [];
       if (t >= pick) {
         s.active = 2;
-        s.toDiagram = { index: 1, p: inOut(seg(t, pick + 0.05, pick + 1.3)) };
-        s.dFlash = { index: 1, at: pick + 1.1 };
+        s.toDiagram = { index: 1, p: inOut(seg(t, pick + 0.05, pick + 1.0)) };
+        s.dFlash = { index: 1, at: pick + 0.8 };
       }
-    }
+    },
 
-    if (id === 'theme') {
-      s.stars = [4, 8];
-      s.chatPos = 1;
-      s.active = 1;
-      s.cursor = cursorPath(t, [[0, 'chat']]);
-      s.dark = t >= 1.0;
-    }
+    code(s, t) {
+      // Open Code, copy a block, star it, jump to it.
+      const open = 0.7;
+      const copy = 1.7;
+      const star = 2.6;
+      const pick = 3.5;
+      move(s, t, [[0.5, 'vopt:2'], [1.1, 'vopt:2'], [1.5, 'ccopy:1'], [2.1, 'ccopy:1'], [2.4, 'cstar:1'], [2.9, 'cstar:1'], [3.3, 'crow:1']]);
+      s.click = clickAt(t, [open, copy, star, pick]);
+      if (t >= open) {
+        s.diagrams = false;
+        s.code = true;
+      }
+      s.cHover = t > 1.3 ? 1 : -1;
+      s.cCopied = t >= copy && t < copy + 1.2 ? 1 : 0;
+      s.cStars = t >= star ? [1] : [];
+      if (t >= pick) {
+        // From the diagram on to the block: underneath, the chat moves to its question.
+        s.active = 6;
+        s.chatPos = 6;
+        s.toCode = { index: 1, p: inOut(seg(t, pick + 0.05, pick + 1.0)) };
+        if (s.toCode.p >= 1) s.toDiagram = null;
+        s.cFlash = { index: 1, at: pick + 0.8 };
+      }
+    },
 
+    starred(s, t) {
+      // ☆ opens everything starred so far; jump from it to a question.
+      const open = 0.6;
+      const pick = 1.8;
+      move(s, t, [[0.4, 'starBtn'], [0.9, 'starBtn'], [1.6, 'srow:3']]);
+      s.click = clickAt(t, [open, pick]);
+      s.starred = t >= open;
+      s.sHover = t > 1.3 ? 3 : -1;
+      if (t >= pick) {
+        // Back from the code block to question 9.
+        s.active = 8;
+        s.chatPos = 8;
+        const p = inOut(seg(t, pick + 0.05, pick + 1.0));
+        s.toCode = p < 1 ? { index: 1, p: 1 - p } : null;
+        s.flash = { index: 8, at: pick + 0.8 };
+      }
+    },
+
+    hide(s, t) {
+      // ⌘⇧O again: the panel goes and reading goes on. Out of sight, the
+      // panel goes back to how the demo began.
+      const hide = 0.6;
+      move(s, t, [[0.4, 'chat'], [3.4, 'rest']]);
+      press(s, t, hide, [mod, '⇧', 'O']);
+      s.panel = 1 - out(seg(t, hide, hide + 0.4));
+      if (t >= hide + 0.5) Object.assign(s, { starred: false, code: false, diagrams: false, stars: [], dStars: [], cStars: [] });
+      s.chatPos = lerp(8, 9.25, inOut(seg(t, 1.2, 3.6)));
+      s.active = Math.floor(s.chatPos + 0.2);
+    },
+  };
+
+  function stateAt(T) {
+    const ci = chapterAt(T);
+    const s = initial();
+    for (let i = 0; i <= ci; i++) {
+      s.chapter = i;
+      moment(s);
+      STORY[CHAPTERS[i].id](s, i < ci ? CHAPTERS[i].dur : T - CHAPTERS[i].start);
+    }
     return s;
   }
 
@@ -365,7 +421,7 @@
                 (m, i) => `
                 <div class="s-turn" data-turn="${i}">
                   <div class="s-user">${esc(m.q)}<span class="s-flash"><span></span></span></div>
-                  <div class="s-answer"><p>${esc(m.a)}</p>${m.diagram ? `<div class="s-diagram">${DIAGRAMS[m.diagram].svg}<span class="s-flash"><span></span></span></div>` : ''}${m.code ? `<pre>${esc(m.code)}</pre>` : ''}</div>
+                  <div class="s-answer"><p>${esc(m.a)}</p>${m.diagram ? `<div class="s-diagram">${DIAGRAMS[m.diagram].svg}<span class="s-flash"><span></span></span></div>` : ''}${m.code ? `<div class="s-code"><pre>${esc(m.code)}</pre><span class="s-flash"><span></span></span></div>` : ''}</div>
                 </div>`
               ).join('')}
               <div class="s-tail"></div>
@@ -400,9 +456,24 @@
         <p class="s-empty">No questions match.</p>
         <ol class="s-dlist">
           ${DRAWN.map(
-            (m) => `<li><div class="s-dprev"><i class="s-shimmer"></i>${DIAGRAMS[m.diagram].svg}</div><b>${esc(DIAGRAMS[m.diagram].title)}</b><span>Question ${m.i + 1}</span></li>`
+            (m) => `<li><div class="s-dprev"><i class="s-shimmer"></i>${DIAGRAMS[m.diagram].svg}</div><div class="s-dline"><div><b>${esc(DIAGRAMS[m.diagram].title)}</b><span>Question ${m.i + 1}</span></div><span class="s-star">${STAR}</span></div></li>`
           ).join('')}
         </ol>
+        <ol class="s-clist">
+          ${CODED.map(
+            (m) => `<li><div class="s-chead"><b>${LANG[m.i]}</b><span>Question ${m.i + 1}</span><i class="s-copy"><svg class="i-copy" viewBox="0 0 24 24"><path d="M9 9h10v10H9zM5 15V5h10"/></svg><svg class="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i><span class="s-star">${STAR}</span></div><pre>${esc(m.code)}</pre></li>`
+          ).join('')}
+        </ol>
+        <div class="s-sview">
+          <div class="s-chips"><i class="on">All <b>4</b></i><i>Questions <b>2</b></i><i>Diagrams <b>1</b></i><i>Code <b>1</b></i></div>
+          <ol class="s-slist">
+            ${STARRABLE.map((r) => {
+              if (r.kind === 'question') return `<li class="s-sq"><span class="s-num">${r.i + 1}.</span><span class="s-label">${esc(CHAT[r.i].q)}</span><span class="s-star">${STAR}</span></li>`;
+              if (r.kind === 'diagram') return `<li class="s-sd"><div class="s-dprev">${DIAGRAMS[CHAT[r.i].diagram].svg}</div><div class="s-dline"><div><b>${esc(DIAGRAMS[CHAT[r.i].diagram].title)}</b><span>Question ${r.i + 1}</span></div><span class="s-star">${STAR}</span></div></li>`;
+              return `<li class="s-sc"><div class="s-chead"><b>${LANG[r.i]}</b><span>Question ${r.i + 1}</span><i class="s-copy"><svg class="i-copy" viewBox="0 0 24 24"><path d="M9 9h10v10H9zM5 15V5h10"/></svg></i><span class="s-star">${STAR}</span></div><pre>${esc(CHAT[r.i].code)}</pre></li>`;
+            }).join('')}
+          </ol>
+        </div>
       </div>
       <div class="s-tab"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg><span>Outline</span></div>
 
@@ -430,9 +501,9 @@
   const cursor = $('.s-cursor');
   const ripple = $('.s-ripple');
   const wheel = $('.s-wheel');
-  const windowEl = $('.s-window');
   const empty = $('.s-empty');
   const heading = $('.s-ph b');
+  const phText = $('.s-ph-text');
   const views = $('.s-views');
   const vopts = [...stage.querySelectorAll('.s-vopt')];
   const dRows = [...stage.querySelectorAll('.s-dlist li')];
@@ -440,6 +511,10 @@
   const dPreviews = dRows.map((r) => r.querySelector('svg'));
   const dInChat = [...stage.querySelectorAll('.s-diagram')];
   const dFlashes = dInChat.map((d) => d.querySelector('.s-flash'));
+  const cRows = [...stage.querySelectorAll('.s-clist li')];
+  const cInChat = [...stage.querySelectorAll('.s-code')];
+  const cFlashes = cInChat.map((d) => d.querySelector('.s-flash'));
+  const sRows = [...stage.querySelectorAll('.s-slist li')];
 
   // ----- layout --------------------------------------------------------------
 
@@ -466,6 +541,11 @@
     const [kind, i] = name.split(':');
     if (kind === 'drow') return pointOf(dRows[+i].firstChild, 0.45, 0.55);
     if (kind === 'vopt') return pointOf(vopts[+i], 0.5, 0.55);
+    if (kind === 'crow') return pointOf(cRows[+i].querySelector('pre'), 0.4, 0.5);
+    if (kind === 'ccopy') return pointOf(cRows[+i].querySelector('.s-copy'), 0.5, 0.5);
+    if (kind === 'cstar') return pointOf(cRows[+i].querySelector('.s-star'), 0.5, 0.5);
+    if (kind === 'dstar') return pointOf(dRows[+i].querySelector('.s-star'), 0.5, 0.5);
+    if (kind === 'srow') return pointOf(sRows[+i].querySelector('pre, .s-dprev, .s-label'), 0.4, 0.5);
     const row = rows[+i];
     if (kind === 'item') return pointOf(row.querySelector('.s-label'), 0.3, 0.6);
     if (kind === 'star') return pointOf(row.querySelector('.s-star'), 0.5, 0.55);
@@ -475,9 +555,11 @@
   // Top of each turn in the feed, measured (they differ in height).
   let tops = [];
   let dTops = []; // the diagrams in the chat, from the feed's top
+  let cTops = []; // the code blocks in the chat, from the feed's top
   const measure = () => {
     tops = turns.map((el) => el.offsetTop);
     dTops = dInChat.map((el) => el.offsetTop);
+    cTops = cInChat.map((el) => el.offsetTop);
   };
 
   // ----- render --------------------------------------------------------------
@@ -488,7 +570,6 @@
 
   function render(T, smooth) {
     const s = stateAt(T);
-    windowEl.dataset.theme = s.dark ? 'dark' : 'light';
 
     // Chat scroll: interpolate between measured tops of questions.
     if (!tops.length) measure();
@@ -499,6 +580,7 @@
     let scrollY = lerp(y0, y1, f) - 24;
     // Jumping to a diagram: on past its question, to the diagram itself.
     if (s.toDiagram) scrollY = lerp(scrollY, dTops[s.toDiagram.index] - 24, s.toDiagram.p);
+    if (s.toCode) scrollY = lerp(scrollY, cTops[s.toCode.index] - 24, s.toCode.p);
     feed.style.transform = `translateY(${-scrollY}px)`;
     turns.forEach((el, k) => el.classList.toggle('gone', k < s.unloadedBelow));
     // The "here it is" ring, timed like the extension's: fade in, hold
@@ -517,16 +599,42 @@
     };
     flashes.forEach((el, k) => ring(el, s.flash, k));
     dFlashes.forEach((el, k) => ring(el, s.dFlash, k));
+    cFlashes.forEach((el, k) => ring(el, s.cFlash, k));
     loader.style.opacity = s.loading;
     // The sidebar marks this chat.
     sideItems.forEach((el, k) => el.classList.toggle('on', k === 0));
     // Questions or Diagrams in the panel. Previews shimmer, then the
     // drawing fades in over the shimmer, like the extension's.
-    panel.classList.toggle('dview', s.diagrams);
+    panel.classList.toggle('dview', s.diagrams && !s.starred);
+    panel.classList.toggle('cview', s.code && !s.starred);
+    panel.classList.toggle('sview', s.starred);
     // The view switcher: the current view's icon in accent.
-    vopts.forEach((el, k) => el.classList.toggle('on', k === (s.diagrams ? 1 : 0)));
-    heading.textContent = s.diagrams ? 'Diagrams' : 'Questions';
-    count.textContent = s.diagrams ? DRAWN.length : N;
+    vopts.forEach((el, k) => el.classList.toggle('on', k === (s.code ? 2 : s.diagrams ? 1 : 0)));
+    const starredN = s.stars.length + s.dStars.length + s.cStars.length;
+    heading.textContent = s.starred ? 'Starred' : s.code ? 'Code' : s.diagrams ? 'Diagrams' : 'Questions';
+    phText.textContent = `Filter ${s.starred ? 'starred' : s.code ? 'code' : s.diagrams ? 'diagrams' : 'questions'}…`;
+    count.textContent = s.starred ? starredN : s.code ? CODED.length : s.diagrams ? DRAWN.length : N;
+    // The diagrams and code in the answer being read are marked like its
+    // question, as in the extension.
+    dRows.forEach((el, k) => {
+      el.classList.toggle('starred', s.dStars.includes(k));
+      el.classList.toggle('active', DRAWN[k].i === s.active);
+    });
+    cRows.forEach((el, k) => {
+      el.classList.toggle('hover', k === s.cHover);
+      el.classList.toggle('starred', s.cStars.includes(k));
+      el.classList.toggle('copied', k === 1 && s.cCopied > 0);
+      el.classList.toggle('active', CODED[k].i === s.active);
+    });
+    // The overview: the rows of what is starred, in chat order.
+    sRows.forEach((el, k) => {
+      const r = STARRABLE[k];
+      const on = r.kind === 'question' ? s.stars.includes(r.i) : r.kind === 'diagram' ? s.dStars.includes(r.d) : s.cStars.includes(r.c);
+      el.hidden = !on;
+      el.classList.toggle('hover', k === s.sHover);
+      el.classList.toggle('active', r.i === s.active);
+    });
+    starBtn.classList.toggle('on', s.starred);
     const pulse = 0.8 + 0.2 * Math.cos((local / 1.6) * 2 * Math.PI);
     dShimmers.forEach((el) => (el.style.opacity = s.previews < 1 ? pulse : 0));
     dPreviews.forEach((el) => {
@@ -546,7 +654,7 @@
     let shown = 0;
     rows.forEach((row, k) => {
       const starred = s.stars.includes(k);
-      const visible = (!q || CHAT[k].q.toLowerCase().includes(q)) && (!s.starOnly || starred);
+      const visible = !q || CHAT[k].q.toLowerCase().includes(q);
       row.hidden = !visible;
       if (visible) shown++;
       row.classList.toggle('active', k === s.active);
@@ -557,7 +665,6 @@
       row.style.transform = enter < 1 ? `translateY(${(1 - enter) * 8}px)` : '';
     });
     empty.hidden = shown > 0;
-    starBtn.classList.toggle('on', s.starOnly);
     ftext.textContent = s.filter;
     filterBox.classList.toggle('focus', s.focusFilter);
     filterBox.classList.toggle('has-text', !!s.filter);
@@ -628,8 +735,9 @@
   let scrubbing = false;
   let shownChapter = -1;
 
+  const two = (n) => String(n).padStart(2, '0');
   function showCaption(ci) {
-    caption.textContent = CHAPTERS[ci].title;
+    caption.innerHTML = `<span class="demo-num">${two(ci + 1)} / ${two(CHAPTERS.length)}</span>${esc(CHAPTERS[ci].title)}`;
   }
 
   function paint(smooth) {

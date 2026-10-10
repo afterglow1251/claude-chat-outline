@@ -8,15 +8,14 @@
 <meta property="og:title" content="Claude Chat Outline">
 <meta property="og:description" content="Every question you asked in a claude.ai chat, one click away.">
 <meta property="og:image" content="screenshot-light.png">
-<meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1f1e1d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f8f3ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1713" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d97757'/%3E%3Cg fill='%23fff'%3E%3Crect x='8' y='9' width='3' height='3' rx='1.5'/%3E%3Crect x='13' y='9' width='11' height='3' rx='1.5'/%3E%3Crect x='8' y='15' width='3' height='3' rx='1.5'/%3E%3Crect x='13' y='15' width='8' height='3' rx='1.5'/%3E%3Crect x='8' y='21' width='3' height='3' rx='1.5'/%3E%3Crect x='13' y='21' width='10' height='3' rx='1.5'/%3E%3C/g%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
-<script src="main.js?v=2" defer></script>
-<script src="demo.js?v=2" defer></script>
+<link rel="stylesheet" href="fonts.css?v=4">
+<script>document.documentElement.classList.add('js')</script>
+<link rel="stylesheet" href="style.css?v=4">
+<script src="main.js?v=4" defer blocking="render"></script>
+<script src="demo.js?v=4" defer blocking="render"></script>
 </head>
 <body>
 
@@ -43,21 +42,21 @@
 
   <!-- Hero ----------------------------------------------------------------->
   <header class="hero wrap">
-    <p class="eyebrow reveal">Chrome extension for claude.ai</p>
-    <h1 class="reveal">Every question you asked,<br><span class="accent">one click away</span></h1>
-    <p class="lede reveal">Chat Outline adds a table of contents to claude.ai. Every question from the chat sits in one panel. Click one and you're there, even in chats too long for claude.ai to load at once.</p>
-    <div class="cta reveal">
+    <p class="eyebrow">Chrome extension for claude.ai</p>
+    <h1>Every question you asked, <span class="accent">one click away<svg class="squiggle" viewBox="0 0 300 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M4 12C52 5 96 17 150 10S250 4 296 11"/></svg></span></h1>
+    <p class="lede">Chat Outline adds a table of contents to claude.ai: every question you asked, every diagram Claude drew and every code block it wrote, in one panel. Click one and you're there, even in chats too long for claude.ai to load at once.</p>
+    <div class="cta">
       <a class="btn btn-primary btn-lg" data-download href="#">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg>
         Download for Chrome
       </a>
       <a class="btn btn-ghost btn-lg" href="#demo">Watch it work</a>
     </div>
-    <p class="fine reveal">Free and open source. No account, no tracking.</p>
+    <p class="fine"><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>Free and open source</span><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>No account</span><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>No tracking</span></p>
   </header>
 
   <!-- Demo ----------------------------------------------------------------->
-  <section id="demo" class="demo-section wrap reveal">
+  <section id="demo" class="demo-section wrap">
     <div class="player" data-player>
       <div class="stage-box">
         <div class="stage" data-stage aria-label="Animated demo of the extension on a claude.ai chat" role="img">
@@ -117,16 +116,24 @@
         <div class="card-art" aria-hidden="true">
           <div class="mini-keys"><kbd data-mod>⌘</kbd><kbd>⇧</kbd><kbd>↑</kbd><kbd>↓</kbd></div>
         </div>
-        <h3>Next question, one key</h3>
-        <p><kbd data-mod-text>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> and <kbd>↓</kbd> step through your questions, panel open or not. From the middle of a long answer, up goes back to its question first.</p>
+        <h3>Keys for everything</h3>
+        <p><kbd data-mod-text>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> step through your questions, panel open or not; <kbd data-mod-text>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> shows or hides it. Arrows move through any list, <kbd>S</kbd> stars.</p>
       </article>
 
       <article class="card reveal" data-card="diagrams">
         <div class="card-art" aria-hidden="true">
           <svg class="mini-shapes" viewBox="0 0 24 24"><path d="M4 4h7v7H4z"/><path d="M14 7.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0"/><path d="M7.5 14L4 20h7z"/><path d="M14 14h7v7h-7z"/></svg>
         </div>
-        <h3>Diagrams and code</h3>
-        <p>Every diagram Claude drew, with a live preview, and every code block it wrote. Click one to jump straight to it.</p>
+        <h3>See every diagram</h3>
+        <p>Every diagram Claude drew — inline visuals, SVG, Mermaid, HTML — with a live preview of each. Click one to jump straight to it.</p>
+      </article>
+
+      <article class="card reveal" data-card="code">
+        <div class="card-art" aria-hidden="true">
+          <div class="mini-code"><i></i><i></i><i></i><span class="mini-copy"><svg viewBox="0 0 24 24"><path class="p-copy" d="M9 9h10v10H9zM5 15V5h10"/><path class="p-tick" d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+        </div>
+        <h3>Every code block, with copy</h3>
+        <p>All the code Claude wrote, in order, with its language and first lines. One click copies it, another jumps to it in the chat.</p>
       </article>
 
       <article class="card reveal" data-card="search">
@@ -141,16 +148,8 @@
         <div class="card-art" aria-hidden="true">
           <svg class="mini-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>
         </div>
-        <h3>Star what matters</h3>
-        <p>Star the questions you'll come back to and show only those. Stars stay on your machine.</p>
-      </article>
-
-      <article class="card reveal" data-card="keys">
-        <div class="card-art" aria-hidden="true">
-          <div class="mini-keys"><kbd data-mod>⌘</kbd><kbd>⇧</kbd><kbd>O</kbd></div>
-        </div>
-        <h3>Panel on a shortcut</h3>
-        <p><kbd data-mod-text>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> shows or hides the panel. Arrow keys move through the list.</p>
+        <h3>Star anything, see it all</h3>
+        <p>Star questions, diagrams or code. The ☆ button opens one list of everything you starred in the chat, by kind if you like. Stars stay on your machine.</p>
       </article>
 
       <article class="card reveal" data-card="theme">
@@ -170,7 +169,6 @@
       <h2>Reaches questions claude.ai hasn't loaded yet</h2>
       <p>In a long chat, claude.ai only keeps the latest messages on the page and loads older ones as you scroll up. Outline tools that read the page can only list what's there, so the start of the chat goes missing.</p>
       <p>Chat Outline reads the conversation the same way claude.ai does, so the list is complete from the first message. Click a question from an hour ago and it loads the earlier messages and takes you there.</p>
-      <p class="note">Tested on a chat with 232 questions</p>
     </div>
 
     <div class="compare reveal" data-compare aria-hidden="true">
@@ -182,7 +180,7 @@
       <div class="col col-ours">
         <p class="col-title">What Chat Outline lists</p>
         <div class="bars" data-bars="ours"></div>
-        <p class="col-foot"><b data-count="ours">0</b> of 232 listed</p>
+        <p class="col-foot"><b data-count="ours">0</b> of 200 listed</p>
       </div>
     </div>
   </section>
@@ -221,11 +219,12 @@
         <p>Click <b>Load unpacked</b>, pick the unzipped folder and open any chat on claude.ai</p>
       </li>
     </ol>
-    <p class="browsers reveal">Works in Chrome, Edge, Brave, Arc and other Chromium browsers (114+)</p>
   </section>
 
   <section class="wrap closing reveal">
+    <svg class="mug" viewBox="0 0 48 48" aria-hidden="true"><path class="steam" d="M17 6c-2 2.5 2 4.5 0 7"/><path class="steam" d="M24 4c-2 2.5 2 4.5 0 7"/><path class="steam" d="M31 6c-2 2.5 2 4.5 0 7"/><path d="M9 18h28v11a11 11 0 0 1-11 11h-6A11 11 0 0 1 9 29z"/><path d="M37 21h2.5a5 5 0 0 1 0 10H37"/><path d="M6 44h34"/></svg>
     <h2>Stop scrolling for that one question</h2>
+    <p>Free, open source, and ready for your next long chat.</p>
     <div class="cta">
       <a class="btn btn-primary btn-lg" data-download href="#">Download for Chrome</a>
       <a class="btn btn-ghost btn-lg" data-repo href="#">View on GitHub</a>
@@ -235,8 +234,8 @@
 
 <footer class="footer">
   <div class="wrap footer-row">
-    <span>Chat Outline · MIT license</span>
-    <span>Not affiliated with Anthropic</span>
+    <a class="brand" href="#top"><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>Chat Outline</a>
+    <span>MIT license · Not affiliated with Anthropic</span>
   </div>
 </footer>
 

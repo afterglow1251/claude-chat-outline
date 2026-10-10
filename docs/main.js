@@ -34,25 +34,23 @@ for (const el of document.querySelectorAll('[data-copy]')) {
   el.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(el.dataset.copy);
-      const text = el.textContent;
+      // A tag above it says so; the text itself stays, so nothing around
+      // it moves under the pointer.
       el.classList.add('copied');
-      el.textContent = 'Copied';
-      setTimeout(() => {
-        el.classList.remove('copied');
-        el.textContent = text;
-      }, 1200);
+      clearTimeout(el.copiedTimer);
+      el.copiedTimer = setTimeout(() => el.classList.remove('copied'), 1200);
     } catch {
       /* clipboard blocked: the text is still there to select */
     }
   });
 }
 
-// "What's on the page" vs "What Chat Outline lists": 232 questions as 64
+// "What's on the page" vs "What Chat Outline lists": 200 questions as 64
 // cells. claude.ai keeps roughly the latest few dozen on the page.
 const compare = document.querySelector('[data-compare]');
 if (compare) {
   const CELLS = 64;
-  const TOTAL = 232;
+  const TOTAL = 200;
   const ON_PAGE = 40; // illustrative: the latest few dozen
   const pageLit = Math.round((ON_PAGE / TOTAL) * CELLS);
   const fill = (name) => {
